@@ -113,7 +113,54 @@ export default {
             }
         }
 
-        // 4. Fallback to static asset serving on Cloudflare Pages
-        return env.ASSETS.fetch(request);
+        // 4. Handle favicon directly to prevent unnecessary asset lookup errors
+        if (url.pathname === '/favicon.ico') {
+            return new Response(null, { status: 204, headers: corsHeaders });
+        }
+
+        // 5. URL Rewriting for clean routes (/ -> /index.html, /sender -> /sender.html)
+        let targetPath = url.pathname;
+        if (targetPath === '/' || targetPath === '') {
+            targetPath = '/index.html';
+        } else if (targetPath === '/sender') {
+            targetPath = '/sender.html';
+        }
+
+        // 6. Safe Static Asset Serving (Cloudflare Pages / Workers with Assets)
+        if (env && env.ASSETS && typeof env.ASSETS.fetch === 'function') {
+            try {
+                const assetUrl = new URL(request.url);
+                assetUrl.pathname = targetPath;
+                const assetReq = new Request(assetUrl.toString(), request);
+                const assetRes = await env.ASSETS.fetch(assetReq);
+                if (assetRes && assetRes.status !== 404) {
+                    return assetRes;
+                }
+                // Try original request if rewritten returned 404
+                if (targetPath !== url.pathname) {
+                    return await env.ASSETS.fetch(request);
+                }
+                return assetRes;
+            } catch (err) {
+                console.error('[Worker] Asset fetch error:', err);
+            }
+        }
+
+        // 7. Fallback when deployed as a standalone Worker without static asset binding
+        return new Response(
+            `🚀 Cast Screen WebRTC Signaling Server is Active!\n\n` +
+            `• WebSocket Endpoint: wss://${url.host}/ws\n` +
+            `• HTTP Signaling: https://${url.host}/signal/poll\n` +
+            `• Room: ${url.searchParams.get('room') || 'default'}\n\n` +
+            `Ghi chú: Để hiển thị đầy đủ giao diện Web, hãy deploy qua Cloudflare Pages theo hướng dẫn (CLOUDFLARE_DEPLOY_GUIDE.md).`,
+            {
+                status: 200,
+                headers: {
+                    ...corsHeaders,
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            }
+        );
     }
 };
+
