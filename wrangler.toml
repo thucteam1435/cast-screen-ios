@@ -1,6 +1,6 @@
 name = "cast-screen-ios"
-main = "_worker.js"
+main = "web/_worker.js"
 compatibility_date = "2024-04-01"
 
 [assets]
-directory = "./"
+directory = "web"
