@@ -45,14 +45,12 @@ class WebRTCManager {
         this._updateStatus('CONNECTING_SIGNALING', 'Đang kết nối máy chủ điều phối...');
         this._lastPollTs = 0;
         
-        // Start HTTP polling concurrently as a resilient fallback layer
-        this._startHttpPollingFallback();
-
         try {
             this.ws = new WebSocket(wsUrl);
             
             this.ws.onopen = () => {
                 this.isWsConnected = true;
+                this._stopHttpPollingFallback();
                 this._updateStatus('SIGNALING_READY', 'Máy chủ tín hiệu sẵn sàng');
                 if (this.role === 'sender') {
                     this._sendSignaling({ type: 'ready', roomId: this.roomId });
@@ -74,14 +72,20 @@ class WebRTCManager {
             this.ws.onclose = () => {
                 this.isWsConnected = false;
                 this._stopPingInterval();
+                if (!this._isWebRtcConnected()) {
+                    this._startHttpPollingFallback();
+                }
             };
             
             this.ws.onerror = () => {
                 this.isWsConnected = false;
                 this._stopPingInterval();
+                if (!this._isWebRtcConnected()) {
+                    this._startHttpPollingFallback();
+                }
             };
         } catch (e) {
-            // HTTP polling is already running
+            this._startHttpPollingFallback();
         }
     }
 
@@ -93,7 +97,7 @@ class WebRTCManager {
                     this.ws.send(JSON.stringify({ type: 'ping' }));
                 } catch (e) {}
             }
-        }, 10000);
+        }, 15000);
     }
 
     _stopPingInterval() {
@@ -112,8 +116,15 @@ class WebRTCManager {
         }
     }
 
+    _isWebRtcConnected() {
+        return this.peerConnection && 
+            (this.peerConnection.iceConnectionState === 'connected' || 
+             this.peerConnection.iceConnectionState === 'completed' ||
+             this.peerConnection.connectionState === 'connected');
+    }
+
     _startHttpPollingFallback() {
-        if (this._pollingActive) return;
+        if (this._pollingActive || this._isWebRtcConnected() || this.isWsConnected) return;
         this._pollingActive = true;
         this._updateStatus('SIGNALING_READY', 'Máy chủ tín hiệu sẵn sàng');
         if (this.role === 'sender') {
@@ -122,7 +133,10 @@ class WebRTCManager {
         this._notifySignalingReady();
 
         const poll = async () => {
-            if (!this._pollingActive) return;
+            if (!this._pollingActive || this._isWebRtcConnected()) {
+                this._stopHttpPollingFallback();
+                return;
+            }
             try {
                 const res = await fetch(`/signal/poll?room=${this.roomId}&role=${this.role}&since=${this._lastPollTs}`);
                 if (res.ok) {
@@ -137,27 +151,40 @@ class WebRTCManager {
             } catch (e) {
                 // ignore timeout
             }
-            if (this._pollingActive) setTimeout(poll, 300);
+            // Gentle 1.5s interval only while waiting; completely stopped once connected
+            if (this._pollingActive && !this._isWebRtcConnected()) {
+                this._pollTimeout = setTimeout(poll, 1500);
+            }
         };
         poll();
+    }
+
+    _stopHttpPollingFallback() {
+        this._pollingActive = false;
+        if (this._pollTimeout) {
+            clearTimeout(this._pollTimeout);
+            this._pollTimeout = null;
+        }
     }
 
     _sendSignaling(data) {
         data.from = this.role;
         data.roomId = this.roomId;
-        // 1. Send via WebSocket if open
+        // Priority 1: Send via WebSocket (0 HTTP requests!)
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             try {
                 this.ws.send(JSON.stringify(data));
+                return;
             } catch (e) {}
         }
-        // 2. Also send via HTTP POST to ensure 100% reachability across cloud edge nodes & LAN
+        // Fallback: Send via HTTP POST only if WebSocket is unavailable
         fetch('/signal/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         }).catch(e => console.warn('[WebRTC] Signal POST error:', e));
     }
+
 
 
     /**
@@ -301,6 +328,7 @@ class WebRTCManager {
             const state = this.peerConnection.iceConnectionState;
             console.log('[WebRTC] ICE Connection State:', state);
             if (state === 'connected' || state === 'completed') {
+                this._stopHttpPollingFallback();
                 this._updateStatus('CONNECTED', 'Đang chiếu mượt mà (GPU 60 FPS)');
                 this._startStatsMonitoring();
             } else if (state === 'failed') {
@@ -311,6 +339,7 @@ class WebRTCManager {
                 this._stopStatsMonitoring();
             }
         };
+
 
         if (this.role === 'receiver') {
             this.peerConnection.addTransceiver('video', { direction: 'recvonly' });
