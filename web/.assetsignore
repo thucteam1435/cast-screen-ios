@@ -1,0 +1,8 @@
+_worker.js
+*.py
+*.bat
+*.pem
+*.exe
+*.log
+*.txt
+CLOUDFLARE_DEPLOY_GUIDE.md
