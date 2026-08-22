@@ -7,7 +7,6 @@ import time
 import psutil
 from typing import Callable, Optional
 
-
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -44,7 +43,6 @@ class AirPlayServer:
 
     @staticmethod
     def kill_orphan_instances():
-        """Kill only stale UxPlay processes; Bonjour is intentionally left alone."""
         targets = {"uxplay-windows.exe", "uxplay.exe", "uxplay-bluetooth-beacon.exe"}
         for proc in psutil.process_iter(["pid", "name"]):
             try:
@@ -58,7 +56,6 @@ class AirPlayServer:
 
     @staticmethod
     def restart_bonjour():
-        """Refresh Bonjour registration without touching the network/firewall path."""
         try:
             result = subprocess.run(
                 ["net", "stop", "Bonjour Service"],
@@ -91,13 +88,11 @@ class AirPlayServer:
     def find_executable(self) -> Optional[str]:
         if not os.path.exists(self.bin_dir):
             return None
-
         targets = ("uxplay-windows.exe", "uxplay.exe")
         for target in targets:
             direct = os.path.join(self.bin_dir, target)
             if os.path.exists(direct):
                 return direct
-
         for root, _, files in os.walk(self.bin_dir):
             for filename in files:
                 if filename.lower() in targets:
@@ -106,28 +101,19 @@ class AirPlayServer:
 
     @staticmethod
     def get_local_ip() -> str:
-        """Prefer the Windows Mobile Hotspot subnet used by the current setup."""
         try:
             stats = psutil.net_if_stats()
             addrs = psutil.net_if_addrs()
-
-            for iface, addr_list in addrs.items():
-                if not stats.get(iface) or not stats[iface].isup:
-                    continue
+            for _, addr_list in addrs.items():
                 for addr in addr_list:
                     if addr.family == socket.AF_INET and addr.address.startswith("192.168.137."):
                         return addr.address
-
-            for iface, addr_list in addrs.items():
-                if not stats.get(iface) or not stats[iface].isup:
-                    continue
+            for _, addr_list in addrs.items():
                 for addr in addr_list:
                     if addr.family == socket.AF_INET and (
-                        addr.address.startswith("172.20.10.")
-                        or addr.address.startswith("192.168.43.")
+                        addr.address.startswith("172.20.10.") or addr.address.startswith("192.168.43.")
                     ):
                         return addr.address
-
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.settimeout(0.5)
             try:
@@ -139,7 +125,6 @@ class AirPlayServer:
                 return ip
         except Exception:
             pass
-
         try:
             stats = psutil.net_if_stats()
             for iface, addr_list in psutil.net_if_addrs().items():
@@ -164,10 +149,8 @@ class AirPlayServer:
                 return "iPhone Personal Hotspot"
             if ip.startswith("192.168.43."):
                 return "Android Hotspot"
-
-            stats = psutil.net_if_stats()
             for iface, addrs in psutil.net_if_addrs().items():
-                if stats.get(iface) and stats[iface].isup:
+                if psutil.net_if_stats().get(iface) and psutil.net_if_stats()[iface].isup:
                     for addr in addrs:
                         if addr.address == ip:
                             return iface
@@ -176,20 +159,15 @@ class AirPlayServer:
         return "Wi-Fi"
 
     def sync_appdata_config(self, config: dict):
-        """Write the actual UxPlay/GStreamer low-latency pipeline configuration.
+        """Write only valid UxPlay CLI options.
 
-        The previous implementation claimed ultra-low latency but omitted -vsync no
-        and explicitly forced D3D11/GL VSync through environment variables. That
-        made the latency switch ineffective and could add a display cadence wait.
-
-        For 1080p iPhone mirroring we keep the whole video path in D3D11 memory:
-            H264 -> d3d11h264dec -> d3d11convert -> d3d11videosink
-        and disable timestamp-based playback synchronization in live mode.
+        GStreamer properties such as sync=false must not be placed into
+        arguments.txt as free-standing tokens: UxPlay parses them as its own
+        command-line options and exits with 'unknown option sync=false'.
         """
         appdata = os.environ.get("APPDATA")
         if not appdata:
             return
-
         try:
             config_dir = os.path.join(appdata, "leapbtw", "uxplay-windows")
             os.makedirs(config_dir, exist_ok=True)
@@ -201,46 +179,34 @@ class AirPlayServer:
             ultra = bool(config.get("ultra_low_latency", True))
             enable_audio = bool(config.get("enable_audio", True))
 
-            # UxPlay 1.73.x defaults to timestamp-based video synchronization.
-            # For interactive mirroring, upstream explicitly recommends -vsync no.
-            # We also explicitly select the D3D11 hardware decoder/converter/sink
-            # so decodebin/videoconvert/autovideosink cannot silently choose a
-            # higher-latency software/copy path.
-            if ultra:
-                video_sync = "sync=false"
-                sync_flag = "-vsync no"
-            else:
-                video_sync = "sync=true"
-                sync_flag = ""
-
-            video_sink = f'd3d11videosink {video_sync} force-aspect-ratio=true'
-
-            # -as 0 is the real UxPlay switch for disabling audio. Keep audio by
-            # default because the user wants game sound; -al 0 is intentionally
-            # removed because it is an Audio-only latency hint and does not fix
-            # Mirror-mode video latency.
-            audio_flag = "" if enable_audio else "-as 0"
-
             args = [
-                f"-n {server_name}",
-                f"-fps {fps}",
+                "-n", server_name,
+                "-fps", str(fps),
                 "-nohold",
-                "-reset 3",
+                "-reset", "3",
                 "-nofreeze",
-                f"-s {resolution}@{fps}",
-                "-vd d3d11h264dec",
-                "-vc d3d11convert",
-                f'-vs "{video_sink}"',
-                sync_flag,
-                audio_flag,
+                "-s", f"{resolution}@{fps}",
+                "-vd", "d3d11h264dec",
+                "-vc", "d3d11convert",
+                "-vs", "d3d11videosink",
             ]
-            args_str = " ".join(part for part in args if part).strip()
+            if ultra:
+                args.extend(["-vsync", "no"])
+            if not enable_audio:
+                args.extend(["-as", "0"])
+
+            encoded = []
+            for arg in args:
+                if any(ch.isspace() for ch in arg):
+                    encoded.append('"' + arg.replace('"', '\\"') + '"')
+                else:
+                    encoded.append(arg)
+            args_str = " ".join(encoded)
 
             with open(args_file, "w", encoding="utf-8") as f:
                 f.write(args_str)
-            self._log(f"[CONFIG] UxPlay low-latency pipeline → {args_str}")
+            self._log(f"[CONFIG] UxPlay arguments → {args_str}")
 
-            # Keep D3D11 selected at the UxPlay-Windows UI/renderer level.
             try:
                 import winreg
                 with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\leapbtw\uxplay-windows") as key:
@@ -282,7 +248,6 @@ class AirPlayServer:
         if not exe_path:
             self._log(f"[ERROR] Không tìm thấy engine tại {self.bin_dir}")
             return False
-
         try:
             working_dir = os.path.dirname(exe_path)
             env = os.environ.copy()
@@ -292,15 +257,9 @@ class AirPlayServer:
             env["GST_PLUGIN_PATH"] = os.path.join(working_dir, "lib", "gstreamer-1.0")
 
             ultra = bool(config.get("ultra_low_latency", True))
-            # Do not force a VSync wait in the low-latency path. UxPlay's -vsync no
-            # handles timestamp synchronization; the sink's sync=false prevents
-            # another clock wait at the final presentation stage.
             env["GST_D3D11_ENABLE_VSYNC"] = "0" if ultra else "1"
             env["GST_GL_VSYNC"] = "0" if ultra else "1"
             env["GST_DX9_VSYNC"] = "0" if ultra else "1"
-
-            # D3D12 is deliberately disabled for this Windows 10 target. D3D11
-            # remains the stable hardware decode/render path.
             env["GST_PLUGIN_FEATURE_RANK"] = (
                 "d3d12videosink:NONE,"
                 "d3d11videosink:PRIMARY+100,"
@@ -326,7 +285,6 @@ class AirPlayServer:
                 encoding="utf-8",
                 errors="replace",
             )
-
             self._running_flag = True
             if self.on_status_change:
                 self.on_status_change("RUNNING")
@@ -384,7 +342,6 @@ class AirPlayServer:
                 self._log(f"[ERROR] Khi dừng tiến trình: {exc}")
             finally:
                 self.process = None
-
         self.kill_orphan_instances()
         self.connected_device = None
         if self.on_status_change:
@@ -414,7 +371,6 @@ class AirPlayServer:
                             f.writelines(lines[-150:])
             except Exception:
                 pass
-
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(msg + "\n")
             if self.on_log:
