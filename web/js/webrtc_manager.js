@@ -161,16 +161,16 @@ class WebRTCManager {
 
 
     /**
-     * Boost WebRTC Video Bitrate (35 Mbps) and Opus Audio Bitrate
+     * Boost WebRTC Video Bitrate (30 Mbps) and Opus Audio Bitrate safely
      */
     _boostSdpBitrate(sdpStr) {
         if (!sdpStr) return sdpStr;
         let sdp = sdpStr;
-        // Inject video bandwidth 35 Mbps if not already present
-        if (!sdp.includes('b=AS:')) {
-            sdp = sdp.replace(/(c=IN IP[46] .*\r\n)/g, '$1b=AS:35000\r\nb=TIAS:35000000\r\n');
+        // Inject video bandwidth (30 Mbps) strictly into the video media section
+        if (sdp.includes('m=video') && !sdp.includes('b=AS:')) {
+            sdp = sdp.replace(/(m=video[^\r\n]*\r\n)/, '$1b=AS:30000\r\nb=TIAS:30000000\r\n');
         }
-        // Enhance existing Opus fmtp line or add parameters cleanly
+        // Enhance existing Opus fmtp line for stereo 128kbps audio
         if (sdp.includes('opus/48000')) {
             const m = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
             if (m) {
@@ -188,6 +188,7 @@ class WebRTCManager {
         }
         return sdp;
     }
+
 
     async _handleSignalingMessage(msg) {
         if (!this.peerConnection) {

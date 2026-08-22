@@ -152,39 +152,47 @@ document.addEventListener('DOMContentLoaded', () => {
         roomId: roomId,
         onStream: (stream, track) => {
             console.log('[App] Stream connected! Audio tracks:', stream.getAudioTracks().length, 'Video tracks:', stream.getVideoTracks().length);
-            if (remoteVideo.srcObject !== stream) {
-                remoteVideo.srcObject = stream;
-            }
+            
+            // Explicitly set essential mobile video playback properties
+            remoteVideo.playsInline = true;
+            remoteVideo.setAttribute('playsinline', '');
+            remoteVideo.setAttribute('webkit-playsinline', '');
+            remoteVideo.muted = true;
+            remoteVideo.setAttribute('muted', '');
+            remoteVideo.defaultMuted = true;
+            remoteVideo.srcObject = stream;
 
-            // Try playing unmuted first (desktop), fall back to muted + prompt on mobile
-            remoteVideo.muted = false;
-            remoteVideo.removeAttribute('muted');
-            remoteVideo.volume = 1.0;
-            remoteVideo.play().then(() => {
-                routeAudioContext(stream);
-                if (btnUnmuteAudio) btnUnmuteAudio.style.display = 'none';
-                if (btnAudioLabel) btnAudioLabel.textContent = 'Tắt Âm Thanh';
-                if (btnAudioToggle) btnAudioToggle.classList.add('active');
-            }).catch(() => {
-                remoteVideo.muted = true;
-                remoteVideo.setAttribute('muted', '');
-                remoteVideo.play().catch(e => console.warn('[App] Play error:', e));
-                if (btnUnmuteAudio) btnUnmuteAudio.style.display = 'flex';
-                if (btnAudioLabel) btnAudioLabel.textContent = 'Bật Âm Thanh';
-                if (btnAudioToggle) btnAudioToggle.classList.remove('active');
-            });
+            // Start playing immediately (always succeeds on iOS & Android when muted=true)
+            const playPromise = remoteVideo.play();
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    console.log('[App] Video playback started successfully!');
+                    if (stream.getAudioTracks().length > 0) {
+                        if (btnUnmuteAudio) btnUnmuteAudio.style.display = 'flex';
+                    }
+                }).catch(err => {
+                    console.warn('[App] Autoplay error, retrying:', err);
+                    remoteVideo.muted = true;
+                    remoteVideo.play().catch(e => console.error('[App] Final play error:', e));
+                });
+            }
 
             waitingOverlay.classList.add('hidden');
             statusBadge.classList.add('connected');
             statusBadge.classList.remove('error');
             statusText.textContent = 'ĐANG CHIẾU MÀN HÌNH';
-            streamDeviceName.textContent = 'Thiết bị Kết Nối (WebRTC 60fps)';
+            streamDeviceName.textContent = 'Thiết bị Phát (60 FPS)';
 
-            // Activate sharpening on live stream
-            const sharpenOn = toggleSharpen ? toggleSharpen.checked : true;
-            const strength = sharpenStrength ? parseFloat(sharpenStrength.value) : 0.60;
-            renderer.setSharpening(sharpenOn, strength);
-            renderer.startLoop();
+            // On mobile devices, use direct native GPU video rendering for 100% stability.
+            // On desktop, activate WebGL sharpening if enabled.
+            const isMobileDevice = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            if (!isMobileDevice && toggleSharpen && toggleSharpen.checked) {
+                const strength = sharpenStrength ? parseFloat(sharpenStrength.value) : 0.60;
+                renderer.setSharpening(true, strength);
+                renderer.startLoop();
+            } else {
+                renderer.setSharpening(false);
+            }
 
             remoteVideo.onloadedmetadata = () => {
                 const w = remoteVideo.videoWidth;
@@ -193,6 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 hud.setResolution(w, h);
             };
         },
+
         onStatusChange: (code, label) => {
             if (code === 'DISCONNECTED') {
                 remoteVideo.srcObject = null;

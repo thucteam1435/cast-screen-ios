@@ -34,9 +34,10 @@
         <section class="viewport-card">
             <div class="video-stage-container" id="videoStage">
                 <!-- Video Element: muted initially for mobile autoplay policy, unmuted on user interaction -->
-                <video id="remoteVideo" autoplay playsinline muted></video>
+                <video id="remoteVideo" autoplay playsinline webkit-playsinline muted></video>
                 <!-- WebGL Sharpening Canvas (GPU) -->
                 <canvas id="glCanvas"></canvas>
+
 
                 <!-- Floating Exit Fullscreen Button (visible when fullscreen is active) -->
                 <button id="btnExitFullscreenFloating" class="btn-exit-fullscreen-floating" title="Thu nhỏ">
