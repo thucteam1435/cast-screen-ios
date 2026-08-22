@@ -1,0 +1,17 @@
+{
+    "server_name": "CastScreen-PC",
+    "resolution": "1920x1080",
+    "fps": 60,
+    "video_renderer": "d3d11",
+    "enable_audio": true,
+    "ultra_low_latency": true,
+    "disable_vsync": true,
+    "disable_async_audio": true,
+    "always_on_top": false,
+    "auto_fit_screen": true,
+    "fullscreen_on_connect": false,
+    "pin_protection": false,
+    "pin_code": "1234",
+    "window_scale": 100,
+    "in_game_hud": true
+}

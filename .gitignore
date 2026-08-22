@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+
+# Logs and local debugging
+*.log
+app_debug.log
+uxplay_debug.log
+uxplay_debug.txt
+uxplay_err.txt
+uxplay_out.txt
+
+# Virtual environment & IDE
+.venv/
+venv/
+.vscode/
+.idea/
+
+# Temporary downloads / archives
+*.zip
+*.tar.gz
+*.tmp
+
+# Scratch files
+scratch/
