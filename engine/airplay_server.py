@@ -6,6 +6,7 @@ import socket
 import re
 import time
 import psutil
+import ctypes
 from typing import Callable, Optional
 
 # Set utf-8 stdout if possible on Windows
@@ -17,6 +18,10 @@ if sys.platform == "win32":
         pass
 
 class AirPlayServer:
+    FIREWALL_PREFIX = "CastScreen UxPlay"
+    UXPLAY_PORT = 7000
+    HOTSPOT_SUBNET = "192.168.137.0/24"
+
     def __init__(self, bin_dir: Optional[str] = None):
         if bin_dir is None:
             if getattr(sys, 'frozen', False):
@@ -79,6 +84,126 @@ class AirPlayServer:
             time.sleep(0.5)
         except Exception:
             pass
+    # -------------------------------------------------------------------------
+    # Firewall Management (Hotspot Subnet 192.168.137.0/24 & Fixed Port 7000)
+    # -------------------------------------------------------------------------
+
+    @classmethod
+    def _run_elevated(cls, command: str) -> bool:
+        """Run a PowerShell command elevated through UAC."""
+        try:
+            ps_command = (
+                "Start-Process powershell "
+                "-Verb RunAs "
+                "-Wait "
+                f"-ArgumentList '-NoProfile -ExecutionPolicy Bypass -Command \"{command}\"'"
+            )
+
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_command],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            return result.returncode == 0
+
+        except Exception as e:
+            print(f"[FIREWALL] Elevated command failed: {e}")
+            return False
+
+    @classmethod
+    def check_firewall_rules_exist(cls) -> bool:
+        """Check if CastScreen firewall rules already exist to prevent repeated UAC prompts."""
+        try:
+            cmd = f'Get-NetFirewallRule -DisplayName "{cls.FIREWALL_PREFIX}*" -ErrorAction SilentlyContinue'
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", cmd],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            return bool(res.stdout and cls.FIREWALL_PREFIX in res.stdout)
+        except Exception:
+            return False
+
+    @classmethod
+    def setup_firewall_rules(cls, force: bool = False) -> bool:
+        """
+        Allow AirPlay traffic only from the Windows Mobile Hotspot subnet.
+
+        UxPlay -p 7000 uses:
+            TCP 7000,7001,7002
+            UDP 7000,7001,7002
+
+        mDNS requires:
+            UDP 5353
+        """
+        # If rules already exist, don't trigger UAC prompt again
+        if not force and cls.check_firewall_rules_exist():
+            return True
+
+        rules = [
+            (
+                f"{cls.FIREWALL_PREFIX} TCP",
+                "TCP",
+                "7000-7002"
+            ),
+            (
+                f"{cls.FIREWALL_PREFIX} UDP",
+                "UDP",
+                "7000-7002"
+            ),
+            (
+                f"{cls.FIREWALL_PREFIX} mDNS",
+                "UDP",
+                "5353"
+            ),
+        ]
+
+        commands = []
+
+        # Remove old rules first so configuration is always clean.
+        commands.append(
+            f"Get-NetFirewallRule -DisplayName '{cls.FIREWALL_PREFIX}*' "
+            "-ErrorAction SilentlyContinue | Remove-NetFirewallRule"
+        )
+
+        for name, protocol, ports in rules:
+            commands.append(
+                "New-NetFirewallRule "
+                f"-DisplayName '{name}' "
+                "-Direction Inbound "
+                "-Action Allow "
+                f"-Protocol {protocol} "
+                f"-LocalPort {ports} "
+                f"-RemoteAddress {cls.HOTSPOT_SUBNET} "
+                "-Profile Any "
+                "-Enabled True"
+            )
+
+        command = "; ".join(commands)
+
+        print("[FIREWALL] Configuring CastScreen firewall rules...")
+        return cls._run_elevated(command)
+
+    @classmethod
+    def remove_firewall_rules(cls):
+        """
+        Remove CastScreen-specific firewall rules.
+        Does not touch any other Windows Firewall rules.
+        """
+        command = (
+            f"Get-NetFirewallRule "
+            f"-DisplayName '{cls.FIREWALL_PREFIX}*' "
+            "-ErrorAction SilentlyContinue | "
+            "Remove-NetFirewallRule"
+        )
+
+        print("[FIREWALL] Removing CastScreen firewall rules...")
+        return cls._run_elevated(command)
+
+    # -------------------------------------------------------------------------
 
     def find_executable(self) -> Optional[str]:
         """Find uxplay-windows.exe or uxplay.exe in bin directory or subdirectories."""
@@ -198,7 +323,8 @@ class AirPlayServer:
                 sync_args = ""
 
             args_str = (
-                f"-n {server_name} -nh -fps {fps} -nohold -reset 3 -nofreeze "
+                f"-n {server_name} -fps {fps} -p {self.UXPLAY_PORT} "
+                f"-nohold -reset 3 -nofreeze "
                 f"-s {resolution}@{fps} -h265 -al 0 {sync_args}".strip()
             )
             with open(args_file, "w", encoding="utf-8") as f:
@@ -250,10 +376,13 @@ class AirPlayServer:
         # 1. Kill any dangling old instances first
         self.kill_orphan_instances()
 
-        # 2. Restart Bonjour to flush stale mDNS/DNS-SD records (prevents kDNSServiceErr_NameConflict)
+        # 2. Configure Windows Firewall for AirPlay (one-time setup)
+        self.setup_firewall_rules()
+
+        # 3. Restart Bonjour to flush stale mDNS/DNS-SD records (prevents kDNSServiceErr_NameConflict)
         self.restart_bonjour()
 
-        # 3. Sync arguments.txt so uxplay-windows uses the exact custom name and latency flags
+        # 4. Sync arguments.txt so uxplay-windows uses the exact custom name, fixed port 7000 and latency flags
         self.sync_appdata_config(config)
 
         exe_path = self.find_executable()
