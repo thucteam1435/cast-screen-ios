@@ -123,40 +123,61 @@ class MDNSAdvertiser:
             server=f'{self.server_name}.local.'
         )
 
+    def _build_unified_service_infos(self, ips: List[str]) -> List[ServiceInfo]:
+        """Build a single AirPlay and RAOP service record containing all active IP addresses."""
+        addr_bytes = [socket.inet_aton(ip) for ip in ips]
+        
+        airplay_props = {
+            'deviceid': self.mac_address,
+            'features': '0x5A7FFFF7,0x1E',
+            'flags': '0x4',
+            'model': 'AppleTV3,2',
+            'pk': 'b07727d6f6cd6e08b58ede525ec3cdeaa252ad9f683feb212ef8a205246554e7',
+            'pi': '2e388006-13ba-4041-9a67-25dd4a43d536',
+            'srcvers': '220.68',
+            'vv': '2'
+        }
+
+        raop_props = {
+            'ch': '2',
+            'cn': '0,1,2,3',
+            'da': 'true',
+            'et': '0,3,5',
+            'ft': '0x5A7FFFF7,0x1E',
+            'md': '0,1,2',
+            'am': 'AppleTV3,2',
+            'pk': 'b07727d6f6cd6e08b58ede525ec3cdeaa252ad9f683feb212ef8a205246554e7',
+            'sf': '0x4',
+            'sm': 'false',
+            'sv': 'false',
+            'tp': 'UDP',
+            'vn': '65537',
+            'vs': '220.68',
+            'vv': '2'
+        }
+
+        s_airplay = ServiceInfo(
+            '_airplay._tcp.local.',
+            f'{self.server_name}._airplay._tcp.local.',
+            addresses=addr_bytes,
+            port=self.port,
+            properties=airplay_props,
+            server=f'{self.server_name}.local.'
+        )
+
+        s_raop = ServiceInfo(
+            '_raop._tcp.local.',
+            f'{self.mac_hex}@{self.server_name}._raop._tcp.local.',
+            addresses=addr_bytes,
+            port=self.port,
+            properties=raop_props,
+            server=f'{self.server_name}.local.'
+        )
+
         return [s_airplay, s_raop]
 
-    def _register_on_ip(self, ip: str):
-        """Register services bound specifically to a network interface."""
-        try:
-            if ip in self.zeroconf_instances:
-                return
-
-            zc = Zeroconf(interfaces=[ip])
-            services = self._build_service_infos(ip)
-            for s in services:
-                zc.register_service(s)
-
-            self.zeroconf_instances[ip] = zc
-            self.registered_services[ip] = services
-            print(f"[MDNSAdvertiser] Đã kích hoạt AirPlay mDNS trên giao diện IP: {ip}")
-        except Exception as e:
-            print(f"[MDNSAdvertiser] Lỗi đăng ký trên IP {ip}: {e}")
-
-    def _unregister_on_ip(self, ip: str):
-        """Unregister services for a disconnected interface."""
-        try:
-            if ip in self.zeroconf_instances:
-                zc = self.zeroconf_instances.pop(ip)
-                zc.unregister_all_services()
-                zc.close()
-            if ip in self.registered_services:
-                self.registered_services.pop(ip)
-            print(f"[MDNSAdvertiser] Đã hủy đăng ký mDNS trên IP: {ip}")
-        except Exception as e:
-            pass
-
     def start(self, server_name: str, port: int = 7000):
-        """Start advertising across all active network interfaces."""
+        """Start advertising as a single unified service across all active network interfaces."""
         with self._lock:
             if self.is_running:
                 self.stop()
@@ -165,14 +186,31 @@ class MDNSAdvertiser:
             self.port = port
             self.is_running = True
 
-            # Register on all active IPs
             active_ips = self.get_active_ipv4_list()
-            for ip in active_ips:
-                self._register_on_ip(ip)
+            if not active_ips:
+                active_ips = ["127.0.0.1"]
 
-            # Start network change monitor thread
-            self.monitor_thread = threading.Thread(target=self._monitor_network_changes, daemon=True)
-            self.monitor_thread.start()
+            try:
+                self.zc = Zeroconf(interfaces=active_ips)
+                self.services = self._build_unified_service_infos(active_ips)
+                for s in self.services:
+                    self.zc.register_service(s)
+                print(f"[MDNSAdvertiser] Đã kích hoạt AirPlay mDNS duy nhất cho '{self.server_name}' trên {', '.join(active_ips)}")
+            except Exception as e:
+                print(f"[MDNSAdvertiser] Lỗi kích hoạt mDNS: {e}")
+
+    def stop(self):
+        """Stop advertising."""
+        with self._lock:
+            self.is_running = False
+            try:
+                if hasattr(self, 'zc') and self.zc:
+                    self.zc.unregister_all_services()
+                    self.zc.close()
+                    self.zc = None
+                print("[MDNSAdvertiser] Đã dừng dịch vụ mDNS quảng bá.")
+            except Exception as e:
+                pass
 
     def _monitor_network_changes(self):
         """Periodically check for new network adapters (e.g. Hotspot turned ON)."""

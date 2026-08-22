@@ -57,11 +57,6 @@ class WindowManager:
     @classmethod
     def find_mirror_window(cls):
         """Find the HWND of the AirPlay video rendering window."""
-        for title in cls.WINDOW_TITLES:
-            h = win32gui.FindWindow(None, title)
-            if h and win32gui.IsWindow(h) and win32gui.IsWindowVisible(h):
-                return h
-
         uxplay_pids = cls.get_uxplay_pids()
         found = []
 
@@ -69,32 +64,56 @@ class WindowManager:
             try:
                 if not win32gui.IsWindow(hwnd) or not win32gui.IsWindowVisible(hwnd):
                     return True
+                if win32gui.IsIconic(hwnd):
+                    return True
                 rect = win32gui.GetWindowRect(hwnd)
-                if (rect[2] - rect[0]) < 100 or (rect[3] - rect[1]) < 100:
+                w = rect[2] - rect[0]
+                h = rect[3] - rect[1]
+                if w < 150 or h < 150:
                     return True
-                title = win32gui.GetWindowText(hwnd).lower()
-                cls_name = win32gui.GetClassName(hwnd).lower()
+
+                title = (win32gui.GetWindowText(hwnd) or "").lower()
+                cls_name = (win32gui.GetClassName(hwnd) or "").lower()
+
+                # Skip known editor and development windows
                 if any(k in title for k in ["cast screen pro", "visual studio", "antigravity",
-                                             "cursor", "cmd.exe", "powershell", "taskbar"]):
+                                             "cursor", "cmd.exe", "powershell", "taskbar", "program manager"]):
                     return True
+
                 _, win_pid = win32process.GetWindowThreadProcessId(hwnd)
-                if win_pid in uxplay_pids:
-                    found.append((hwnd, 10))
-                    return True
-                for t in cls.WINDOW_TITLES:
-                    if t in title:
-                        found.append((hwnd, 5))
-                        return True
-                if "gst" in cls_name or "d3d" in cls_name:
-                    found.append((hwnd, 4))
+                score = 0
+
+                # Match title
+                if any(k in title for k in ["airplay", "direct3d", "gstreamer", "stream", "iphone", "ipad", "castscreen", "renderer"]):
+                    score += 50
+
+                # Match class
+                if any(k in cls_name for k in ["d3d", "gst", "video", "renderer", "direct3d", "qwidget"]):
+                    score += 30
+
+                # Match PID
+                if uxplay_pids and win_pid in uxplay_pids:
+                    score += 40
+
+                # Area bonus
+                if w >= 300 and h >= 200:
+                    score += min(50, int((w * h) / 40000))
+
+                if score > 0:
+                    found.append((hwnd, score, w * h))
             except Exception:
                 pass
             return True
 
         win32gui.EnumWindows(enum_cb, None)
         if found:
-            found.sort(key=lambda x: x[1], reverse=True)
+            found.sort(key=lambda x: (x[1], x[2]), reverse=True)
             return found[0][0]
+
+        for title in cls.WINDOW_TITLES:
+            h = win32gui.FindWindow(None, title)
+            if h and win32gui.IsWindow(h) and win32gui.IsWindowVisible(h):
+                return h
         return None
 
     # -------------------------------------------------------------------------
@@ -139,6 +158,49 @@ class WindowManager:
                 return dpi_x / 96.0
             except Exception:
                 return 1.0
+
+    @classmethod
+    def bring_to_front(cls, hwnd: int) -> bool:
+        """Forcefully bring window to the absolute foreground, restoring if minimized."""
+        if not hwnd or not win32gui.IsWindow(hwnd):
+            return False
+        try:
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            else:
+                win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+
+            fore_hwnd = win32gui.GetForegroundWindow()
+            cur_thread = win32api.GetCurrentThreadId()
+            fore_thread, _ = win32process.GetWindowThreadProcessId(fore_hwnd)
+
+            if fore_thread != cur_thread and fore_thread != 0:
+                ctypes.windll.user32.AttachThreadInput(fore_thread, cur_thread, True)
+
+            win32gui.SetWindowPos(
+                hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_SHOWWINDOW
+            )
+            win32gui.SetForegroundWindow(hwnd)
+            win32gui.BringWindowToTop(hwnd)
+            win32gui.SetFocus(hwnd)
+
+            win32gui.SetWindowPos(
+                hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_SHOWWINDOW
+            )
+
+            if fore_thread != cur_thread and fore_thread != 0:
+                ctypes.windll.user32.AttachThreadInput(fore_thread, cur_thread, False)
+
+            return True
+        except Exception:
+            try:
+                win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+                win32gui.SetForegroundWindow(hwnd)
+                return True
+            except Exception:
+                return False
 
     # -------------------------------------------------------------------------
     # Always-on-top
@@ -268,10 +330,34 @@ class WindowManager:
     # -------------------------------------------------------------------------
     # Auto-fit (windowed mode)
     # -------------------------------------------------------------------------
+    # Auto-fit & Aspect Ratio (windowed mode)
+    # -------------------------------------------------------------------------
+
+    @classmethod
+    def get_content_aspect_ratio(cls, hwnd: int) -> float:
+        """Dynamically detect content aspect ratio (19.5:9 for modern iPhone, 16:9 for older iPhone, 4:3 for iPad)."""
+        try:
+            rect = win32gui.GetClientRect(hwnd)
+            cw = rect[2] - rect[0]
+            ch = rect[3] - rect[1]
+            if cw > 0 and ch > 0:
+                raw = max(cw, ch) / min(cw, ch)
+                # Check for standard ratios within tolerance
+                if abs(raw - (19.5 / 9.0)) < 0.15:  # ~2.1667 (iPhone 13-16 series)
+                    return 19.5 / 9.0
+                elif abs(raw - (16.0 / 9.0)) < 0.10:  # ~1.7778 (iPhone SE / 8 / Standard video)
+                    return 16.0 / 9.0
+                elif abs(raw - (4.0 / 3.0)) < 0.10:   # ~1.3333 (iPad)
+                    return 4.0 / 3.0
+                elif 1.2 <= raw <= 2.5:
+                    return raw
+        except Exception:
+            pass
+        return cls.PHONE_ASPECT
 
     @classmethod
     def auto_fit_window(cls, hwnd: int, scale_factor: float = 0.95) -> bool:
-        """Resize and center the window to 19.5:9 on the correct monitor."""
+        """Resize and center the window dynamically matching device aspect ratio on the correct monitor."""
         if not hwnd or not win32gui.IsWindow(hwnd):
             return False
 
@@ -282,19 +368,20 @@ class WindowManager:
             return False
 
         aspect = cur_w / cur_h
+        target_ratio = cls.get_content_aspect_ratio(hwnd)
         sw, sh, left, top = cls.get_monitor_work_area(hwnd)
 
         if aspect < 1.1:
             # Portrait
             new_h = int(sh * 0.90)
-            new_w = int(new_h / cls.PHONE_ASPECT)
+            new_w = int(new_h / target_ratio)
         else:
-            # Landscape — fit 19.5:9 inside available work area
+            # Landscape — fit target_ratio inside available work area
             new_w = int(sw * scale_factor)
-            new_h = int(new_w / cls.PHONE_ASPECT)
+            new_h = int(new_w / target_ratio)
             if new_h > int(sh * scale_factor):
                 new_h = int(sh * scale_factor)
-                new_w = int(new_h * cls.PHONE_ASPECT)
+                new_w = int(new_h * target_ratio)
 
         pos_x = left + (sw - new_w) // 2
         pos_y = top  + (sh - new_h) // 2
@@ -311,42 +398,29 @@ class WindowManager:
 
     @classmethod
     def crop_fill_window(cls, hwnd: int) -> bool:
-        """Crop-Fill (F9): resize window to EXACT 19.5:9 ratio using full monitor width.
+        """Crop-Fill (F9): resize window to EXACT device aspect ratio using full monitor width.
 
-        This eliminates all letterbox/pillarbox bars because the window ratio
-        exactly matches the iPhone 14 video stream ratio (19.5:9). GStreamer
-        then renders the video at 1:1 scale — sharpest possible quality.
-
-        Result: window is full-width (e.g. 1920px wide, 886px tall) centered on screen.
-        Black bars from the monitor background appear above/below, but the game
-        content itself has ZERO bars and maximum clarity.
-
-        Press F11 for crop-fill + fullscreen coverage (crops sides instead).
+        Eliminates letterbox/pillarbox bars for 1:1 pixel rendering.
         """
         if not hwnd or not win32gui.IsWindow(hwnd):
             return False
         try:
-            # Exit fullscreen state if active
             if cls.is_fullscreen(hwnd):
                 cls.set_fullscreen(hwnd, False)
 
             sw, sh, left, top = cls.get_monitor_work_area(hwnd)
+            target_ratio = cls.get_content_aspect_ratio(hwnd)
 
-            # Use full monitor WIDTH → compute exact 19.5:9 height
-            # e.g. on a 1920×1080 monitor: new_w=1920, new_h=886
             new_w = sw
-            new_h = int(sw / cls.PHONE_ASPECT)   # sw × 9/19.5
+            new_h = int(sw / target_ratio)
 
-            # If height still doesn't fit, constrain to height instead
             if new_h > sh:
                 new_h = sh
-                new_w = int(sh * cls.PHONE_ASPECT)
+                new_w = int(sh * target_ratio)
 
-            # Center on screen
             pos_x = left + (sw - new_w) // 2
             pos_y = top  + (sh - new_h) // 2
 
-            # Apply with ctypes MoveWindow (bypasses any Qt size constraints)
             ctypes.windll.user32.MoveWindow(hwnd, pos_x, pos_y, new_w, new_h, True)
             win32gui.SetWindowPos(
                 hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0,
@@ -359,42 +433,27 @@ class WindowManager:
     @classmethod
     def zoom_to_height(cls, hwnd: int) -> bool:
         """Zoom to Height (F10): scale window so height fills the full monitor work area,
-        cropping left & right sides equally.
-
-        This is the 'Khít chiều cao' mode:
-          - new_h = full work-area height (e.g. 1040px on a 1080p monitor with taskbar)
-          - new_w = new_h × 19.5/9 (wider than monitor, symmetric crop on both sides)
-          - Centered horizontally → equal crop on left & right
-
-        Unlike F11 (fullscreen), this mode:
-          - Keeps the window titlebar / decorations (windowed, not borderless)
-          - Does NOT set HWND_TOPMOST
-          - Uses ctypes MoveWindow to bypass Qt's internal size constraints
-        """
+        cropping left & right sides equally."""
         if not hwnd or not win32gui.IsWindow(hwnd):
             return False
         try:
-            # Exit fullscreen state if active
             if cls.is_fullscreen(hwnd):
                 cls.set_fullscreen(hwnd, False)
 
             sw, sh, left, top = cls.get_monitor_work_area(hwnd)
+            target_ratio = cls.get_content_aspect_ratio(hwnd)
 
-            # Height = full work-area height, width = 19.5:9 (wider than monitor)
-            new_h  = sh                              # e.g. 1040px (1080 - taskbar)
-            new_w  = int(sh * cls.PHONE_ASPECT)      # e.g. 1040 × 2.1667 ≈ 2253px
-            crop_x = (new_w - sw) // 2              # e.g. (2253-1920)//2 = 166px each side
-            pos_x  = left - crop_x                  # negative x → off-screen left
-            pos_y  = top                             # flush to top of work area
+            new_h  = sh
+            new_w  = int(sh * target_ratio)
+            crop_x = (new_w - sw) // 2
+            pos_x  = left - crop_x
+            pos_y  = top
 
-            # Force resize with MoveWindow (bypasses Qt size constraints)
             ctypes.windll.user32.MoveWindow(hwnd, pos_x, pos_y, new_w, new_h, True)
 
-            # Verify: if Qt capped the width, at minimum set height and center
             actual   = win32gui.GetWindowRect(hwnd)
             actual_w = actual[2] - actual[0]
             if actual_w < new_w - 50:
-                # Width was capped → fallback: full-width, full-height (no side crop)
                 ctypes.windll.user32.MoveWindow(hwnd, left, top, sw, new_h, True)
 
             win32gui.SetWindowPos(
@@ -404,3 +463,63 @@ class WindowManager:
             return True
         except Exception:
             return False
+
+    @classmethod
+    def find_all_mirror_windows(cls) -> list:
+        """Find all active mirror window HWNDs."""
+        uxplay_pids = cls.get_uxplay_pids()
+        found = []
+
+        def enum_cb(hwnd, _):
+            try:
+                if not win32gui.IsWindow(hwnd) or not win32gui.IsWindowVisible(hwnd) or win32gui.IsIconic(hwnd):
+                    return True
+                rect = win32gui.GetWindowRect(hwnd)
+                w, h = rect[2] - rect[0], rect[3] - rect[1]
+                if w < 150 or h < 150:
+                    return True
+                title = (win32gui.GetWindowText(hwnd) or "").lower()
+                cls_name = (win32gui.GetClassName(hwnd) or "").lower()
+                if any(k in title for k in ["cast screen pro", "visual studio", "antigravity", "cursor", "cmd.exe", "powershell"]):
+                    return True
+                _, win_pid = win32process.GetWindowThreadProcessId(hwnd)
+                if (uxplay_pids and win_pid in uxplay_pids) or any(k in title for k in ["airplay", "direct3d", "gstreamer", "stream", "iphone", "ipad"]):
+                    found.append(hwnd)
+            except Exception:
+                pass
+            return True
+
+        win32gui.EnumWindows(enum_cb, None)
+        return found
+
+    @classmethod
+    def tile_windows_grid(cls):
+        """Automatically arrange all connected device mirror windows side-by-side."""
+        hwnds = cls.find_all_mirror_windows()
+        if not hwnds:
+            return
+        n = len(hwnds)
+        if n == 1:
+            cls.bring_to_front(hwnds[0])
+            cls.auto_fit_window(hwnds[0])
+            return
+
+        sw, sh, left, top = cls.get_monitor_work_area(hwnds[0])
+        if n == 2:
+            # Side by side: 2 columns
+            half_w = sw // 2
+            for idx, h in enumerate(hwnds[:2]):
+                pos_x = left + idx * half_w
+                ctypes.windll.user32.MoveWindow(h, pos_x, top, half_w, sh, True)
+                cls.bring_to_front(h)
+        elif n >= 3:
+            # 2x2 grid
+            half_w = sw // 2
+            half_h = sh // 2
+            for idx, h in enumerate(hwnds[:4]):
+                row = idx // 2
+                col = idx % 2
+                pos_x = left + col * half_w
+                pos_y = top + row * half_h
+                ctypes.windll.user32.MoveWindow(h, pos_x, pos_y, half_w, half_h, True)
+                cls.bring_to_front(h)

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cast Screen Pro — Chiếu Màn Hình WebRTC 60FPS</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+        <div class="nav-brand">
+            <div class="brand-logo-glow">
+                <svg class="nav-logo-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                    <line x1="8" y1="21" x2="16" y2="21"/>
+                    <line x1="12" y1="17" x2="12" y2="21"/>
+                </svg>
+            </div>
+            <span class="brand-title">Cast Screen <span class="brand-sub">PRO</span></span>
+            <span class="badge-tag">WEB CLOUD</span>
+        </div>
+        <div class="nav-status">
+            <div class="status-pill" id="statusBadge">
+                <span class="status-indicator"></span>
+                <span class="status-text" id="statusText">SẴN SÀNG KẾT NỐI</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="app-container">
+        <!-- Left: Video Viewport Stage -->
+        <section class="viewport-card">
+            <div class="video-stage-container" id="videoStage">
+                <!-- Video Element: muted initially for mobile autoplay policy, unmuted on user interaction -->
+                <video id="remoteVideo" autoplay playsinline muted></video>
+                <!-- WebGL Sharpening Canvas (GPU) -->
+                <canvas id="glCanvas"></canvas>
+
+                <!-- Floating Exit Fullscreen Button (visible when fullscreen is active) -->
+                <button id="btnExitFullscreenFloating" class="btn-exit-fullscreen-floating" title="Thu nhỏ">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+                    </svg>
+                    <span>Thu Nhỏ</span>
+                </button>
+
+                <!-- Floating Unmute Audio Pill -->
+                <button id="btnUnmuteAudio" class="btn-unmute-floating">
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                    </svg>
+                    BẬT ÂM THANH
+                </button>
+
+                <!-- Waiting Overlay with QR Code -->
+                <div class="waiting-overlay" id="waitingOverlay">
+                    <div class="waiting-icon">
+                        <svg class="waiting-phone-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="5" y="2" width="14" height="20" rx="3" ry="3"/>
+                            <line x1="12" y1="18" x2="12.01" y2="18"/>
+                            <path d="M9 6h6"/>
+                        </svg>
+                    </div>
+                    <h2 class="waiting-title">Sẵn Sàng Nhận Chiếu Màn Hình</h2>
+                    <p class="waiting-subtitle">
+                        Quét mã QR hoặc truy cập đường link để chia sẻ màn hình điện thoại / máy tính của bạn.
+                    </p>
+
+                    <div class="connect-box">
+                        <div class="qr-code-wrapper" id="qrCodeContainer"></div>
+                        <div class="room-pin-display">
+                            <span class="pin-label">MÃ PHÒNG:</span>
+                            <span class="pin-value" id="roomPinDisplay">------</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toolbar Controls (Clean & Focused on Fullscreen + Audio) -->
+            <div class="viewport-toolbar">
+                <div class="tool-group">
+                    <button class="btn-tool" id="btnFullscreen" title="Toàn màn hình">
+                        <svg class="icon-svg" id="iconFullscreenSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                        </svg>
+                        <span class="btn-label" id="btnFullscreenLabel">Toàn Màn Hình</span>
+                    </button>
+                    <button class="btn-tool" id="btnAudioToggle" title="Bật/Tắt âm thanh">
+                        <svg class="icon-svg" id="iconAudioSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                        </svg>
+                        <span class="btn-label" id="btnAudioLabel">Bật Âm Thanh</span>
+                    </button>
+                </div>
+                <div class="tool-group desktop-hint">
+                    <span style="font-size: 12px; color: var(--text-muted);">Phím tắt: F (Toàn màn hình) • H (Ẩn/Hiện HUD)</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right: Control & Telemetry Sidebar -->
+        <aside class="sidebar-panel">
+            <!-- Stream Telemetry Card -->
+            <div class="control-card">
+                <div class="card-header">
+                    <svg class="card-header-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 20V10M12 20V4M6 20v-6"/>
+                    </svg>
+                    <h3 class="card-title">THÔNG SỐ PHẦN CỨNG & MẠNG</h3>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Thiết bị:</span>
+                    <span class="info-value highlight" id="streamDeviceName">Chưa có kết nối</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Độ phân giải:</span>
+                    <span class="info-value" id="streamResInfo">Tự động (1080p/2K)</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Giao thức:</span>
+                    <span class="info-value">WebRTC P2P (0ms Cloud)</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Giải mã phần cứng:</span>
+                    <span class="info-value highlight">VGA GPU (WebCodecs)</span>
+                </div>
+            </div>
+
+            <!-- Video Enhancer & GPU Sharpening Card -->
+            <div class="control-card">
+                <div class="card-header">
+                    <svg class="card-header-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="4" y="4" width="16" height="16" rx="2"/>
+                        <rect x="9" y="9" width="6" height="6"/>
+                        <line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/>
+                        <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
+                        <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
+                        <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
+                    </svg>
+                    <h3 class="card-title">TỐI ƯU HÓA HÌNH ẢNH GPU</h3>
+                </div>
+                <div class="switch-row">
+                    <div>
+                        <div style="font-size: 13px; font-weight: 600;">Làm Nét GPU (WebGL Shaders)</div>
+                        <div style="font-size: 11px; color: var(--text-muted);">Khử mờ & Tăng độ tương phản rìa ảnh</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="toggleSharpen" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="setting-item" style="margin-top: 10px;">
+                    <label class="setting-label">Mức độ làm nét:</label>
+                    <select class="select-box" id="sharpenStrength">
+                        <option value="0.35">Nhẹ (35%) — Mịn màng</option>
+                        <option value="0.60" selected>Tiêu chuẩn (60%) — Rất sắc nét</option>
+                        <option value="0.90">Cực đại (90%) — Sắc lẹm</option>
+                    </select>
+                </div>
+
+                <div class="switch-row" style="margin-top: 10px;">
+                    <div>
+                        <div style="font-size: 13px; font-weight: 600;">In-Game OSD HUD</div>
+                        <div style="font-size: 11px; color: var(--text-muted);">Hiện FPS & Ping kiểu Esports</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="toggleHud" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Scripts with Cache Busting -->
+    <script src="js/qrcode.min.js?v=3.1"></script>
+    <script src="js/hud_overlay.js?v=3.1"></script>
+    <script src="js/video_renderer.js?v=3.1"></script>
+    <script src="js/webrtc_manager.js?v=3.1"></script>
+    <script src="js/app.js?v=3.1"></script>
+</body>
+</html>

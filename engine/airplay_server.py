@@ -6,6 +6,7 @@ import socket
 import time
 import psutil
 from typing import Callable, Optional
+from engine.mdns_advertiser import MDNSAdvertiser
 
 if sys.platform == "win32":
     try:
@@ -31,6 +32,7 @@ class AirPlayServer:
         self.connected_device = None
         self.monitor_thread: Optional[threading.Thread] = None
         self.stdout_thread: Optional[threading.Thread] = None
+        self.mdns = MDNSAdvertiser()
 
         self.on_status_change: Optional[Callable[[str], None]] = None
         self.on_client_connected: Optional[Callable[[str], None]] = None
@@ -159,12 +161,7 @@ class AirPlayServer:
         return "Wi-Fi"
 
     def sync_appdata_config(self, config: dict):
-        """Write only valid UxPlay CLI options.
-
-        GStreamer properties such as sync=false must not be placed into
-        arguments.txt as free-standing tokens: UxPlay parses them as its own
-        command-line options and exits with 'unknown option sync=false'.
-        """
+        """Write only valid, sanitized UxPlay CLI options into arguments.txt."""
         appdata = os.environ.get("APPDATA")
         if not appdata:
             return
@@ -178,30 +175,25 @@ class AirPlayServer:
             fps = int(config.get("fps", 60))
             ultra = bool(config.get("ultra_low_latency", True))
             enable_audio = bool(config.get("enable_audio", True))
-
             args = [
                 "-n", server_name,
                 "-fps", str(fps),
+                "-h265",
                 "-nohold",
                 "-reset", "3",
                 "-nofreeze",
                 "-s", f"{resolution}@{fps}",
-                "-vd", "d3d11h264dec",
-                "-vc", "d3d11convert",
-                "-vs", "d3d11videosink",
             ]
             if ultra:
                 args.extend(["-vsync", "no"])
+            else:
+                args.extend(["-vsync", "0"])
             if not enable_audio:
                 args.extend(["-as", "0"])
 
-            encoded = []
-            for arg in args:
-                if any(ch.isspace() for ch in arg):
-                    encoded.append('"' + arg.replace('"', '\\"') + '"')
-                else:
-                    encoded.append(arg)
-            args_str = " ".join(encoded)
+            # UxPlay-windows splits on whitespace to generate argument list.
+            # Make sure all arguments are simple tokens without embedded spaces or stray quotes.
+            args_str = " ".join(args)
 
             with open(args_file, "w", encoding="utf-8") as f:
                 f.write(args_str)
@@ -215,6 +207,23 @@ class AirPlayServer:
                 pass
         except Exception as exc:
             self._log(f"[CONFIG] Không thể ghi arguments.txt: {exc}")
+
+    @staticmethod
+    def configure_dedicated_gpu(exe_path: str):
+        """Configure Windows DirectX UserGpuPreferences (NVIDIA GPU) and disable Windows DPI blurring."""
+        try:
+            import winreg
+            # 1. Force High Performance Dedicated GPU (NVIDIA / AMD)
+            reg_path = r"Software\Microsoft\DirectX\UserGpuPreferences"
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
+                winreg.SetValueEx(key, os.path.abspath(exe_path), 0, winreg.REG_SZ, "GpuPreference=2;")
+
+            # 2. Disable Windows DPI bitmap scaling blur (forces 1:1 physical pixel rendering)
+            compat_path = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, compat_path) as key:
+                winreg.SetValueEx(key, os.path.abspath(exe_path), 0, winreg.REG_SZ, "~ HIGHDPIAWARE PERMONITORDPIAWARE")
+        except Exception:
+            pass
 
     @staticmethod
     def get_all_active_ips() -> list:
@@ -244,17 +253,33 @@ class AirPlayServer:
         self.restart_bonjour()
         self.sync_appdata_config(config)
 
+        # Start multi-interface mDNS advertiser
+        try:
+            server_name = str(config.get("server_name", "CastScreen-PC")).strip() or "CastScreen-PC"
+            self.mdns.start(server_name=server_name, port=7000)
+            self._log(f"[mDNS] Đã kích hoạt quảng bá AirPlay đa card mạng cho '{server_name}'.")
+        except Exception as e:
+            self._log(f"[mDNS] Cảnh báo kích hoạt mDNS: {e}")
+
         exe_path = self.find_executable()
         if not exe_path:
             self._log(f"[ERROR] Không tìm thấy engine tại {self.bin_dir}")
             return False
         try:
+            self.configure_dedicated_gpu(exe_path)
             working_dir = os.path.dirname(exe_path)
             env = os.environ.copy()
             env["PATH"] = working_dir + os.pathsep + env.get("PATH", "")
             env["GST_DEBUG"] = "0"
             env["G_MESSAGES_DEBUG"] = "none"
             env["GST_PLUGIN_PATH"] = os.path.join(working_dir, "lib", "gstreamer-1.0")
+
+            # Force NVIDIA / Discrete GPU utilization & high visual fidelity
+            env["SHIM_MCCOMPAT"] = "0x000000001"
+            env["GST_D3D11_PREFER_HARDWARE"] = "1"
+            env["GST_D3D11_CONVERT_FILTER_MODE"] = "2"   # Bicubic high-quality interpolation
+            env["GST_D3D11_ENABLE_DITHERING"] = "1"
+            env["GST_D3D11_COLOR_RANGE"] = "full"         # Full RGB 0-255 range
 
             ultra = bool(config.get("ultra_low_latency", True))
             env["GST_D3D11_ENABLE_VSYNC"] = "0" if ultra else "1"
@@ -292,9 +317,27 @@ class AirPlayServer:
             def _read_stdout():
                 try:
                     if self.process and self.process.stdout:
+                        import re
                         for line in iter(self.process.stdout.readline, ""):
                             if line:
-                                self._log(line.rstrip())
+                                text = line.rstrip()
+                                self._log(text)
+                                # Detect client connection
+                                if "connection request from" in text:
+                                    m = re.search(r"connection request from\s+(.*?)\s+with deviceID", text, re.IGNORECASE)
+                                    dev_name = m.group(1).strip() if m else "Thiết bị iOS (iPhone)"
+                                    self.connected_device = dev_name
+                                    if self.on_client_connected:
+                                        self.on_client_connected(dev_name)
+                                elif "raop_rtp_mirror starting mirroring" in text or "Begin streaming" in text:
+                                    if not self.connected_device:
+                                        self.connected_device = "Thiết bị iOS (AirPlay)"
+                                    if self.on_client_connected:
+                                        self.on_client_connected(self.connected_device)
+                                elif "Connection closed" in text or "Output window was closed" in text:
+                                    self.connected_device = None
+                                    if self.on_client_disconnected:
+                                        self.on_client_disconnected()
                             if not self._running_flag:
                                 break
                 except Exception:
@@ -330,6 +373,11 @@ class AirPlayServer:
 
     def stop(self):
         self._running_flag = False
+        try:
+            if self.mdns:
+                self.mdns.stop()
+        except Exception:
+            pass
         if self.process:
             try:
                 self._log("[INFO] Đang dừng AirPlay Server...")

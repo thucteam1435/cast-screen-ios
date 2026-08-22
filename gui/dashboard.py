@@ -859,56 +859,60 @@ class CastScreenApp(ctk.CTk):
     # -----------------------------------------------------------------------
 
     def _get_bandwidth_mbps(self) -> float:
-        """Return inbound network bandwidth in Mbps using psutil delta counters.
+        """Return inbound network bandwidth in Mbps."""
+        mbps, _ = self._get_network_stream_metrics()
+        return mbps
 
-        Measures bytes received on the active Wi-Fi / Hotspot interface since
-        the last call.  First call always returns 0 (no delta yet).
-        """
+    def _get_network_stream_metrics(self) -> tuple:
+        """Return (mbps: float, pps: float) measuring real packet and bit arrival rate."""
         try:
-            # Identify active interface once, cache it
             if not self._bw_iface:
                 local_ip = AirPlayServer.get_local_ip()
-                stats  = psutil.net_if_stats()
-                addrs  = psutil.net_if_addrs()
+                stats = psutil.net_if_stats()
+                addrs = psutil.net_if_addrs()
                 for iface, addr_list in addrs.items():
                     if not stats.get(iface) or not stats[iface].isup:
                         continue
                     for addr in addr_list:
-                        if addr.family == 2 and addr.address == local_ip:  # AF_INET
+                        if addr.family == 2 and addr.address == local_ip:
                             self._bw_iface = iface
                             break
                     if self._bw_iface:
                         break
 
             if not self._bw_iface:
-                return 0.0
+                return 0.0, 0.0
 
             counters = psutil.net_io_counters(pernic=True)
-            iface_c  = counters.get(self._bw_iface)
+            iface_c = counters.get(self._bw_iface)
             if iface_c is None:
-                return 0.0
+                return 0.0, 0.0
 
-            now        = time.time()
+            now = time.time()
             bytes_recv = iface_c.bytes_recv
+            packets_recv = iface_c.packets_recv
 
-            if self._bw_last_ts == 0.0:
-                # First sample — just store baseline, return 0
+            if not hasattr(self, "_bw_last_packets") or self._bw_last_ts == 0.0:
                 self._bw_last_bytes = bytes_recv
-                self._bw_last_ts    = now
-                return 0.0
+                self._bw_last_packets = packets_recv
+                self._bw_last_ts = now
+                return 0.0, 0.0
 
             elapsed = now - self._bw_last_ts
-            if elapsed < 0.05:       # guard against zero-division
-                return 0.0
+            if elapsed < 0.05:
+                return 0.0, 0.0
 
-            delta_bytes       = bytes_recv - self._bw_last_bytes
+            delta_bytes = max(0, bytes_recv - self._bw_last_bytes)
+            delta_pkts = max(0, packets_recv - self._bw_last_packets)
             self._bw_last_bytes = bytes_recv
-            self._bw_last_ts    = now
+            self._bw_last_packets = packets_recv
+            self._bw_last_ts = now
 
-            mbps = (delta_bytes * 8) / (elapsed * 1_000_000)  # bits → Mbps
-            return max(0.0, mbps)
+            mbps = (delta_bytes * 8) / (elapsed * 1_000_000)
+            pps = delta_pkts / elapsed
+            return mbps, pps
         except Exception:
-            return 0.0
+            return 0.0, 0.0
 
     # -----------------------------------------------------------------------
     # Main background daemon loop
@@ -1032,84 +1036,7 @@ class CastScreenApp(ctk.CTk):
                         except Exception:
                             pass
 
-                        # ── Real-time stats (every ~1 s = 5 ticks × 0.2 s) ──
-                        stats_tick += 1
-                        if stats_tick >= 5:
-                            stats_tick  = 0
-                            now_t       = time.time()
 
-                            # 1. Real bandwidth measured from active network interface (Mbps)
-                            raw_bw = self._get_bandwidth_mbps()
-                            smoothed_bw = (0.4 * raw_bw + 0.6 * smoothed_bw
-                                          if smoothed_bw > 0 else raw_bw)
-
-                            # 2. Real dynamic motion FPS:
-                            # Reflects the true active frame transmission of iOS AirPlay HEVC encoder.
-                            # - Gaming / Fast motion (BW >= 4.0 Mbps): Full 59.8 - 60.0 FPS
-                            # - Moderate motion (1.0 <= BW < 4.0 Mbps): 45.0 - 58.0 FPS
-                            # - Static screen / Reading (0.2 <= BW < 1.0 Mbps): 24.0 - 35.0 FPS (P-frame drop)
-                            # - Idle / Suspended (BW < 0.2 Mbps): 0.0 FPS
-                            if smoothed_bw >= 4.0:
-                                active_fps = min(target_fps, target_fps - (0.1 if (int(now_t) % 3 == 0) else 0.0))
-                                smoothed_fps = 0.4 * active_fps + 0.6 * smoothed_fps if smoothed_fps > 0 else active_fps
-                            elif smoothed_bw >= 1.0:
-                                ratio = (smoothed_bw - 1.0) / 3.0
-                                active_fps = 45.0 + ratio * 14.5
-                                smoothed_fps = 0.4 * active_fps + 0.6 * smoothed_fps if smoothed_fps > 0 else active_fps
-                            elif smoothed_bw >= 0.2:
-                                ratio = (smoothed_bw - 0.2) / 0.8
-                                active_fps = 24.0 + ratio * 20.0
-                                smoothed_fps = 0.4 * active_fps + 0.6 * smoothed_fps if smoothed_fps > 0 else active_fps
-                            else:
-                                smoothed_fps = 0.0
-
-                            # 3. Real Glass-to-Glass Latency (Total End-to-End Delay):
-                            # Total = Network Ping RTT + iOS Hardware Encoder (~25ms) + D3D11 Pipeline Render
-                            if smoothed_fps > 0:
-                                network_rtt = max(1.0, self._client_ping_ms)
-                                ios_encode_delay = 25.0  # Apple VideoToolbox HW encode + frame capture
-                                if self.config_data.get("ultra_low_latency", True):
-                                    gpu_render_buffer = 12.0  # zero-buffer D3D11 rendering
-                                else:
-                                    gpu_render_buffer = 95.0  # default audio-video sync buffer
-
-                                # Latency penalty if network bandwidth is bottlenecked
-                                bw_penalty = max(0.0, (5.0 - smoothed_bw) * 6.0) if smoothed_bw < 5.0 else 0.0
-                                cur_lat = network_rtt + ios_encode_delay + gpu_render_buffer + bw_penalty
-                                smoothed_lat = 0.35 * cur_lat + 0.65 * smoothed_lat if smoothed_lat > 0 else cur_lat
-                            else:
-                                smoothed_lat = 0.0
-
-                            fps_val     = smoothed_fps
-                            lat_val     = smoothed_lat
-                            bw_val      = smoothed_bw
-                            cur_res_str = self.config_data.get("resolution", "1920x1080")
-
-                            def _update_stats(fps=fps_val, lat=lat_val, bw=bw_val, res=cur_res_str, h=hwnd):
-                                try:
-                                    fps_color = ("#10B981" if fps >= target_fps * 0.90
-                                                 else ("#FFB800" if fps >= target_fps * 0.5
-                                                       else "#FF3366"))
-                                    fps_label = f"⚡ Tốc độ: {fps:.1f} FPS" if fps > 0 else "⚡ Tốc độ: -- FPS"
-                                    lat_label = (f"⏱️ Tổng độ trễ: ~{lat:.0f} ms"
-                                                 if lat > 0 else "⏱️ Tổng độ trễ: -- ms")
-                                    bw_label  = (f"📡 Băng thông: {bw:.1f} Mbps  ({res} HEVC)"
-                                                 if bw > 0.1 else f"📡 Băng thông: đo... ({res} HEVC)")
-                                    self.fps_stat_label.configure(text=fps_label, text_color=fps_color)
-                                    self.latency_stat_label.configure(text=lat_label, text_color="#38BDF8")
-                                    self.bitrate_stat_label.configure(text=bw_label, text_color="#CBD5E1")
-                                    self.gpu_stat_label.configure(
-                                        text="🎮 GPU Engine: Direct3D 11 Đang render",
-                                        text_color="#4ADE80"
-                                    )
-
-                                    # Update In-Game HUD with identical metrics
-                                    if self.config_data.get("in_game_hud", True):
-                                        self.hud_overlay.update_overlay(h, fps_val=fps, lat_val=lat, target_fps=target_fps)
-                                except Exception:
-                                    pass
-
-                            self.after(0, _update_stats)
 
                     else:
                         # ── Mirror window gone ───────────────────────────────
