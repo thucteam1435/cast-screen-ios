@@ -45,6 +45,9 @@ class WebRTCManager {
         this._updateStatus('CONNECTING_SIGNALING', 'Đang kết nối máy chủ điều phối...');
         this._lastPollTs = 0;
         
+        // Start HTTP polling concurrently as a resilient fallback layer
+        this._startHttpPollingFallback();
+
         try {
             this.ws = new WebSocket(wsUrl);
             
@@ -54,9 +57,7 @@ class WebRTCManager {
                 if (this.role === 'sender') {
                     this._sendSignaling({ type: 'ready', roomId: this.roomId });
                 }
-                // BUG-04/05 FIX: Notify when signaling is ready
                 this._notifySignalingReady();
-                // Send keepalive ping every 10 seconds to keep connection active
                 this._startPingInterval();
             };
             
@@ -73,16 +74,14 @@ class WebRTCManager {
             this.ws.onclose = () => {
                 this.isWsConnected = false;
                 this._stopPingInterval();
-                this._startHttpPollingFallback();
             };
             
             this.ws.onerror = () => {
                 this.isWsConnected = false;
                 this._stopPingInterval();
-                this._startHttpPollingFallback();
             };
         } catch (e) {
-            this._startHttpPollingFallback();
+            // HTTP polling is already running
         }
     }
 
@@ -104,8 +103,7 @@ class WebRTCManager {
         }
     }
 
-
-    /** BUG-04/05 FIX: Internal method to trigger signaling ready callback once */
+    /** Internal method to trigger signaling ready callback once */
     _notifySignalingReady() {
         if (this._signalingReady) return; // only fire once
         this._signalingReady = true;
@@ -121,11 +119,9 @@ class WebRTCManager {
         if (this.role === 'sender') {
             this._sendSignaling({ type: 'ready', roomId: this.roomId });
         }
-        // BUG-04/05 FIX: Notify when HTTP polling fallback is ready
         this._notifySignalingReady();
 
         const poll = async () => {
-            // BUG-12 FIX: Check flag at top of callback, not just before scheduling
             if (!this._pollingActive) return;
             try {
                 const res = await fetch(`/signal/poll?room=${this.roomId}&role=${this.role}&since=${this._lastPollTs}`);
@@ -141,7 +137,6 @@ class WebRTCManager {
             } catch (e) {
                 // ignore timeout
             }
-            // BUG-12 FIX: Re-check flag after await to avoid one extra request
             if (this._pollingActive) setTimeout(poll, 300);
         };
         poll();
@@ -150,16 +145,20 @@ class WebRTCManager {
     _sendSignaling(data) {
         data.from = this.role;
         data.roomId = this.roomId;
+        // 1. Send via WebSocket if open
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify(data));
-        } else {
-            fetch('/signal/send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            }).catch(e => console.warn('[WebRTC] Signal POST error:', e));
+            try {
+                this.ws.send(JSON.stringify(data));
+            } catch (e) {}
         }
+        // 2. Also send via HTTP POST to ensure 100% reachability across cloud edge nodes & LAN
+        fetch('/signal/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        }).catch(e => console.warn('[WebRTC] Signal POST error:', e));
     }
+
 
     /**
      * Boost WebRTC Video Bitrate (35 Mbps) and Opus Audio Bitrate
