@@ -29,15 +29,34 @@
         .device-badge {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 4px 12px;
+            gap: 8px;
+            padding: 6px 14px;
             border-radius: 20px;
-            font-size: 12px;
+            font-size: 13px;
             font-weight: 700;
             margin-bottom: 12px;
             background: rgba(0, 229, 255, 0.12);
             color: var(--accent-cyan);
             border: 1px solid rgba(0, 229, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .device-badge.apple {
+            background: rgba(56, 189, 248, 0.15);
+            color: #38BDF8;
+            border-color: rgba(56, 189, 248, 0.4);
+        }
+
+        .device-badge.android {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34D399;
+            border-color: rgba(16, 185, 129, 0.4);
+        }
+
+        .device-badge.desktop {
+            background: rgba(168, 85, 247, 0.15);
+            color: #C084FC;
+            border-color: rgba(168, 85, 247, 0.4);
         }
 
         .btn-cast-big {
@@ -70,188 +89,219 @@
             box-shadow: 0 0 25px rgba(244, 63, 94, 0.4);
         }
 
-        /* iOS Dedicated Step Guide */
-        .ios-guide-box {
-            background: rgba(14, 22, 38, 0.95);
-            border: 1px solid rgba(0, 229, 255, 0.35);
+        .status-box {
+            display: none;
+            padding: 12px;
             border-radius: var(--radius-md);
-            padding: 16px;
-            text-align: left;
-            margin-top: 14px;
-        }
-
-        .ios-step {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
             margin-bottom: 12px;
             font-size: 13px;
-            line-height: 1.5;
-            color: var(--text-primary);
+            font-weight: 600;
+            text-align: center;
         }
 
-        .ios-step:last-child {
-            margin-bottom: 0;
-        }
-
-        .step-num {
-            width: 24px;
-            height: 24px;
-            background: var(--accent-cyan);
-            color: #040711;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 800;
-            font-size: 12px;
-            flex-shrink: 0;
-        }
-
-        .target-server-pill {
-            display: inline-block;
-            background: rgba(16, 185, 129, 0.2);
+        .status-box.active {
+            display: block;
+            background: rgba(16, 185, 129, 0.15);
             color: #34D399;
             border: 1px solid rgba(16, 185, 129, 0.4);
-            padding: 2px 8px;
-            border-radius: 6px;
+        }
+
+        .ios-tip-accordion {
+            background: rgba(14, 22, 38, 0.8);
+            border: 1px solid rgba(0, 229, 255, 0.2);
+            border-radius: var(--radius-md);
+            margin-top: 14px;
+            text-align: left;
+            overflow: hidden;
+        }
+
+        .ios-tip-header {
+            padding: 10px 14px;
+            font-size: 12px;
             font-weight: 700;
-            font-family: var(--font-mono);
+            color: var(--accent-blue);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+
+        .ios-tip-body {
+            padding: 0 14px 12px;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            display: none;
+        }
+
+        .warning-notice-box {
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            margin-top: 12px;
+            font-size: 12px;
+            color: #FDE68A;
+            text-align: left;
+            line-height: 1.5;
         }
     </style>
 </head>
 <body>
     <div class="sender-card">
         <div id="deviceBadge" class="device-badge">
-            <svg class="icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <span id="deviceBadgeText">Đang nhận diện thiết bị...</span>
+            <span id="deviceBadgeIcon">📱</span>
+            <span id="deviceBadgeText">Nhận diện thiết bị...</span>
         </div>
         
         <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 4px;">Trung Tâm Chiếu Màn Hình</h2>
         <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">
-            Hỗ trợ toàn diện: iPhone, iPad, Android, Tablet và Máy tính.
+            1 Chạm Chiếu Màn Hình trực tiếp lên Web (iOS, Android, PC, macOS).
         </p>
 
-        <div class="room-pin-display" style="justify-content: center; margin-bottom: 10px;">
+        <div class="room-pin-display" style="justify-content: center; margin-bottom: 12px;">
             <span class="pin-label">PHÒNG KẾT NỐI:</span>
             <span class="pin-value" id="senderRoomPin">------</span>
         </div>
 
-        <!-- Android & PC Screen Share Section (default visible, hidden only on iOS) -->
-        <div id="webrtcShareSection">
-            <button class="btn-cast-big" id="btnStartCast">
-                <svg class="icon-svg" id="castBtnSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4.93 4.93a10 10 0 0 0 0 14.14M7.76 7.76a6 6 0 0 0 0 8.48M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0M16.24 7.76a6 6 0 0 1 0 8.48M19.07 4.93a10 10 0 0 1 0 14.14"/>
-                </svg>
-                <span id="castBtnLabel">BẮT ĐẦU CHIẾU MÀN HÌNH</span>
-            </button>
+        <div id="castStatusBox" class="status-box">
+            🟢 Đang phát trực tiếp màn hình (WebRTC 60 FPS)
+        </div>
 
-            <!-- getDisplayMedia not supported warning (shown on Android mobile) -->
-            <div id="noDisplayMediaWarning" style="display:none; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.4); border-radius: var(--radius-md); padding: 14px; margin-top: 10px; font-size: 13px; color: #FDE68A; text-align: left; line-height: 1.6;">
-                ⚠️ <strong>Trình duyệt này không hỗ trợ chiếu màn hình trực tiếp.</strong><br>
-                Vui lòng dùng <strong>Chrome trên máy tính</strong> hoặc thử ứng dụng <strong>Google Meet / AnyDesk</strong> để chia sẻ màn hình điện thoại.
+        <!-- Unified Cast Button for iOS, Android, PC -->
+        <button class="btn-cast-big" id="btnStartCast">
+            <svg class="icon-svg" id="castBtnSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4.93 4.93a10 10 0 0 0 0 14.14M7.76 7.76a6 6 0 0 0 0 8.48M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0M16.24 7.76a6 6 0 0 1 0 8.48M19.07 4.93a10 10 0 0 1 0 14.14"/>
+            </svg>
+            <span id="castBtnLabel">BẮT ĐẦU CHIẾU MÀN HÌNH</span>
+        </button>
+
+        <!-- Audio warning if audio not captured -->
+        <div id="audioWarningNotice" class="warning-notice-box" style="display:none;">
+            ⚠️ <strong>Chưa có âm thanh:</strong> Hãy tích chọn ô <em>"Chia sẻ âm thanh"</em> trong popup của trình duyệt nếu bạn muốn truyền cả tiếng.
+        </div>
+
+        <!-- Notice if getDisplayMedia is restricted -->
+        <div id="noDisplayMediaWarning" style="display:none;" class="warning-notice-box">
+            ⚠️ <strong>Trình duyệt này bị giới hạn quyền quay màn hình:</strong><br>
+            • Trên <strong>iPhone / iPad</strong>: Mở bằng <strong>Safari</strong>.<br>
+            • Trên <strong>Android</strong>: Dùng <strong>Chrome / Edge / Firefox</strong> bản mới nhất hoặc mở trên PC.
+        </div>
+
+        <!-- Stream Quality & Audio Controls -->
+        <div class="mobile-setting-box">
+            <div class="setting-item" style="margin-bottom: 10px;">
+                <label class="setting-label">Độ nét & Tốc độ:</label>
+                <select class="select-box" id="senderQuality">
+                    <option value="1080p" selected>1080p @ 60 FPS (Cực mượt)</option>
+                    <option value="1440p">2K QHD @ 60 FPS (Siêu nét Retina)</option>
+                    <option value="720p">720p @ 60 FPS (Tiết kiệm pin)</option>
+                </select>
             </div>
-
-            <div class="mobile-setting-box">
-                <div class="setting-item" style="margin-bottom: 10px;">
-                    <label class="setting-label">Độ nét & Tốc độ:</label>
-                    <select class="select-box" id="senderQuality">
-                        <option value="1080p" selected>1080p @ 60 FPS (Cực mượt)</option>
-                        <option value="1440p">2K QHD @ 60 FPS (Siêu nét Retina)</option>
-                        <option value="720p">720p @ 60 FPS (Tiết kiệm pin)</option>
-                    </select>
-                </div>
-                <div class="switch-row">
-                    <span style="font-size: 13px; color: var(--text-secondary);">Kèm âm thanh hệ thống</span>
-                    <label class="switch">
-                        <input type="checkbox" id="senderAudio" checked>
-                        <span class="slider"></span>
-                    </label>
-                </div>
+            <div class="switch-row" id="audioSettingRow">
+                <span style="font-size: 13px; color: var(--text-secondary);">Kèm âm thanh hệ thống</span>
+                <label class="switch">
+                    <input type="checkbox" id="senderAudio" checked>
+                    <span class="slider"></span>
+                </label>
             </div>
         </div>
 
-        <!-- iOS Apple Native AirPlay Guide Section -->
-        <div id="iosAirPlaySection" style="display: none;">
-            <div class="ios-guide-box">
-                <div style="font-weight: 700; font-size: 14px; color: var(--accent-cyan); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                    <svg class="icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2"><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><polygon points="12 15 17 21 7 21 12 15"/></svg>
-                    KẾT NỐI AIRPLAY NATIVE 2.5K 60FPS
-                </div>
-
-                <div class="ios-step">
-                    <div class="step-num">1</div>
-                    <div>
-                        Vuốt góc trên bên phải màn hình iPhone xuống để mở <strong>Trung tâm điều khiển (Control Center)</strong>.
-                    </div>
-                </div>
-
-                <div class="ios-step">
-                    <div class="step-num">2</div>
-                    <div>
-                        Chạm vào biểu tượng <strong>Phản Chiếu Màn Hình</strong>.
-                    </div>
-                </div>
-
-                <div class="ios-step">
-                    <div class="step-num">3</div>
-                    <div>
-                        Chọn thiết bị: <span class="target-server-pill">CastScreen-PC</span>
-                    </div>
-                </div>
+        <!-- Optional Accordion for Native AirPlay Guide -->
+        <div class="ios-tip-accordion" id="airPlayAccordion">
+            <div class="ios-tip-header" id="airPlayToggleHeader">
+                <span>🍏 Cách khác: Dùng AirPlay Native (iPhone / iPad)</span>
+                <span id="accordionArrow">▼</span>
             </div>
-
-            <div style="margin-top: 14px; font-size: 12px; color: #34D399; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                <svg class="icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                Tự động kích hoạt giải mã GPU NVIDIA & HEVC 60 FPS!
+            <div class="ios-tip-body" id="airPlayBody">
+                1. Vuốt góc trên màn hình iPhone để mở <strong>Trung tâm điều khiển</strong>.<br>
+                2. Bấm <strong>Phản Chiếu Màn Hình</strong>.<br>
+                3. Chọn thiết bị: <strong style="color:#34D399;">CastScreen-PC</strong> để chiếu 2.5K 60FPS không cần trình duyệt!
             </div>
         </div>
     </div>
 
     <!-- Scripts -->
-    <script src="js/webrtc_manager.js?v=3.1"></script>
+    <script src="js/webrtc_manager.js?v=3.3"></script>
     <script>
+        // Parse URL params
         const urlParams = new URLSearchParams(window.location.search);
         let roomId = urlParams.get('room') || 'default';
-        document.getElementById('senderRoomPin').textContent = roomId;
+        const senderRoomPin = document.getElementById('senderRoomPin');
+        if (senderRoomPin) senderRoomPin.textContent = roomId;
 
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-        const iosSection = document.getElementById('iosAirPlaySection');
-        const webrtcSection = document.getElementById('webrtcShareSection');
-        const deviceBadge = document.getElementById('deviceDetectBadge');
-        const btnStartCast = document.getElementById('btnStartCast');
-        const audioWarningNotice = document.getElementById('audioWarningNotice');
+        // Device Detection
+        function detectUserDevice() {
+            const ua = navigator.userAgent || '';
+            const platform = navigator.platform || '';
+            
+            const isIOS = /iPad|iPhone|iPod/.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            const isAndroid = /android/i.test(ua);
+            const isMac = /macintosh|mac os x/i.test(ua) && !isIOS;
+            const isWindows = /windows nt/i.test(ua);
+            const isMobile = isIOS || isAndroid || /mobile/i.test(ua);
 
-        if (isIOS) {
-            deviceBadge.innerHTML = '🍏 Thiết bị Apple (iPhone / iPad)';
-            deviceBadge.style.color = '#38BDF8';
-            iosSection.style.display = 'block';
-            webrtcSection.style.display = 'none';
-        } else {
-            deviceBadge.innerHTML = '📱 Thiết bị Android / PC / Tablet';
-            webrtcSection.style.display = 'block';
-            iosSection.style.display = 'none';
-
-            // Check if getDisplayMedia is supported (NOT available on Android Chrome mobile)
-            const supportsDisplayMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
-            if (!supportsDisplayMedia) {
-                const warning = document.getElementById('noDisplayMediaWarning');
-                if (warning) warning.style.display = 'block';
-                if (btnStartCast) {
-                    btnStartCast.disabled = true;
-                    btnStartCast.style.opacity = '0.5';
-                    btnStartCast.style.cursor = 'not-allowed';
-                    document.getElementById('castBtnLabel').textContent = 'Không hỗ trợ chiếu màn hình';
-                }
-            }
+            return { isIOS, isAndroid, isMac, isWindows, isMobile };
         }
 
-        // WebRTC Screen Capture handler for Android / PC
+        const device = detectUserDevice();
+        const deviceBadge = document.getElementById('deviceBadge');
+        const deviceBadgeIcon = document.getElementById('deviceBadgeIcon');
+        const deviceBadgeText = document.getElementById('deviceBadgeText');
+        const btnStartCast = document.getElementById('btnStartCast');
+        const castBtnLabel = document.getElementById('castBtnLabel');
+        const castStatusBox = document.getElementById('castStatusBox');
+        const audioWarningNotice = document.getElementById('audioWarningNotice');
+        const audioSettingRow = document.getElementById('audioSettingRow');
+
+        // Apply Device Badge
+        if (device.isIOS) {
+            deviceBadge.className = 'device-badge apple';
+            deviceBadgeIcon.textContent = '🍏';
+            deviceBadgeText.textContent = 'Thiết bị Apple (iOS)';
+            // Hide audio switch on iOS Safari because iOS ReplayKit browser does not expose system audio
+            if (audioSettingRow) audioSettingRow.style.display = 'none';
+        } else if (device.isAndroid) {
+            deviceBadge.className = 'device-badge android';
+            deviceBadgeIcon.textContent = '🤖';
+            deviceBadgeText.textContent = 'Thiết bị Android';
+        } else if (device.isWindows || device.isMac) {
+            deviceBadge.className = 'device-badge desktop';
+            deviceBadgeIcon.textContent = '💻';
+            deviceBadgeText.textContent = device.isWindows ? 'Máy tính Windows' : 'Máy tính macOS';
+        } else {
+            deviceBadge.className = 'device-badge';
+            deviceBadgeIcon.textContent = '📱';
+            deviceBadgeText.textContent = 'Thiết bị Web';
+        }
+
+        // AirPlay Accordion Toggle
+        const airPlayToggleHeader = document.getElementById('airPlayToggleHeader');
+        const airPlayBody = document.getElementById('airPlayBody');
+        const accordionArrow = document.getElementById('accordionArrow');
+        if (airPlayToggleHeader && airPlayBody) {
+            airPlayToggleHeader.addEventListener('click', () => {
+                const isOpen = airPlayBody.style.display === 'block';
+                airPlayBody.style.display = isOpen ? 'none' : 'block';
+                if (accordionArrow) accordionArrow.textContent = isOpen ? '▼' : '▲';
+            });
+        }
+
+        // Check getDisplayMedia support
+        const supportsDisplayMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+        const warning = document.getElementById('noDisplayMediaWarning');
+        if (!supportsDisplayMedia) {
+            if (warning) warning.style.display = 'block';
+        }
+
+        // WebRTC Screen Capture handler (Unified for iOS, Android, PC)
         let localStream = null;
         let webrtc = null;
 
         function stopCurrentCast() {
             if (audioWarningNotice) audioWarningNotice.style.display = 'none';
+            if (castStatusBox) castStatusBox.classList.remove('active');
             if (localStream) {
                 localStream.getTracks().forEach(t => t.stop());
                 localStream = null;
@@ -261,8 +311,9 @@
                 webrtc = null;
             }
             if (btnStartCast) {
+                btnStartCast.disabled = false;
                 btnStartCast.classList.remove('casting');
-                btnStartCast.innerHTML = '<span>📡</span> BẮT ĐẦU CHIẾU MÀN HÌNH (60 FPS)';
+                if (castBtnLabel) castBtnLabel.textContent = 'BẮT ĐẦU CHIẾU MÀN HÌNH';
             }
         }
 
@@ -274,53 +325,69 @@
                 }
 
                 try {
-                    const quality = document.getElementById('senderQuality').value;
-                    const enableAudio = document.getElementById('senderAudio').checked;
+                    const qualityEl = document.getElementById('senderQuality');
+                    const quality = qualityEl ? qualityEl.value : '1080p';
+                    const enableAudioEl = document.getElementById('senderAudio');
+                    const enableAudio = !device.isIOS && enableAudioEl ? enableAudioEl.checked : false;
 
                     let width = 1920, height = 1080;
                     if (quality === '1440p') { width = 2560; height = 1440; }
                     else if (quality === '720p') { width = 1280; height = 720; }
 
-                    // Show loading state while requesting screen access
                     btnStartCast.disabled = true;
-                    document.getElementById('castBtnLabel').textContent = 'Đang yêu cầu quyền...';
+                    if (castBtnLabel) castBtnLabel.textContent = 'Đang yêu cầu quyền...';
 
+                    // Progressive fallback strategy for getDisplayMedia across iOS Safari, Android, and PC
                     try {
-                        localStream = await navigator.mediaDevices.getDisplayMedia({
-                            video: {
-                                width: { ideal: width, max: 3840 },
-                                height: { ideal: height, max: 2160 },
-                                frameRate: { ideal: 60, max: 60 },
-                                cursor: 'always'
-                            },
-                            audio: enableAudio ? {
-                                autoGainControl: false,
-                                echoCancellation: false,
-                                noiseSuppression: false
-                            } : false,
-                            systemAudio: enableAudio ? 'include' : 'exclude'
-                        });
+                        if (device.isIOS) {
+                            // iOS Safari ReplayKit screen broadcast
+                            localStream = await navigator.mediaDevices.getDisplayMedia({
+                                video: {
+                                    width: { ideal: width, max: 3840 },
+                                    height: { ideal: height, max: 2160 },
+                                    frameRate: { ideal: 60, max: 60 }
+                                }
+                            });
+                        } else {
+                            localStream = await navigator.mediaDevices.getDisplayMedia({
+                                video: {
+                                    width: { ideal: width, max: 3840 },
+                                    height: { ideal: height, max: 2160 },
+                                    frameRate: { ideal: 60, max: 60 },
+                                    cursor: 'always'
+                                },
+                                audio: enableAudio ? {
+                                    autoGainControl: false,
+                                    echoCancellation: false,
+                                    noiseSuppression: false
+                                } : false,
+                                systemAudio: enableAudio ? 'include' : 'exclude'
+                            });
+                        }
                     } catch (e1) {
-                        localStream = await navigator.mediaDevices.getDisplayMedia({
-                            video: {
-                                width: { ideal: width, max: 3840 },
-                                height: { ideal: height, max: 2160 },
-                                frameRate: { ideal: 60, max: 60 },
-                                cursor: 'always'
-                            },
-                            audio: enableAudio
-                        });
+                        try {
+                            localStream = await navigator.mediaDevices.getDisplayMedia({
+                                video: {
+                                    width: { ideal: width, max: 3840 },
+                                    height: { ideal: height, max: 2160 },
+                                    frameRate: { ideal: 60, max: 60 }
+                                },
+                                audio: enableAudio
+                            });
+                        } catch (e2) {
+                            // Absolute minimal constraint fallback
+                            localStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                        }
                     }
 
-                    // Check if user did not check the audio box in browser screen picker
+                    // Check if audio was requested but not provided by screen picker
                     if (enableAudio && localStream.getAudioTracks().length === 0) {
                         if (audioWarningNotice) audioWarningNotice.style.display = 'block';
                     } else {
                         if (audioWarningNotice) audioWarningNotice.style.display = 'none';
                     }
 
-                    // Show connecting state while signaling sets up
-                    document.getElementById('castBtnLabel').textContent = 'Đang kết nối...';
+                    if (castBtnLabel) castBtnLabel.textContent = 'Đang kết nối...';
 
                     webrtc = new WebRTCManager({
                         role: 'sender',
@@ -330,7 +397,8 @@
                                 await webrtc.startScreenCapture(localStream);
                                 btnStartCast.disabled = false;
                                 btnStartCast.classList.add('casting');
-                                btnStartCast.innerHTML = '<span>⏹</span> DỪNG PHÁT MÀN HÌNH';
+                                if (castBtnLabel) castBtnLabel.textContent = 'DỪNG PHÁT MÀN HÌNH';
+                                if (castStatusBox) castStatusBox.classList.add('active');
 
                                 localStream.getVideoTracks()[0].onended = () => {
                                     console.log('[Sender] Screen sharing stopped by user');
@@ -345,7 +413,7 @@
                 } catch (err) {
                     console.error('Error:', err);
                     btnStartCast.disabled = false;
-                    document.getElementById('castBtnLabel').textContent = 'BẮT ĐẦU CHIẾU MÀN HÌNH';
+                    if (castBtnLabel) castBtnLabel.textContent = 'BẮT ĐẦU CHIẾU MÀN HÌNH';
                     stopCurrentCast();
                     if (err.name !== 'NotAllowedError') {
                         alert('Lỗi chia sẻ màn hình: ' + err.message);

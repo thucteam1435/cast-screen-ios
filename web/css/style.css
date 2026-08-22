@@ -744,16 +744,7 @@ input:checked + .slider:before {
     }
 }
 
-    .desktop-hint {
-        display: none;
-    }
-
-    .sidebar-panel {
-        margin-top: 6px;
-    }
-}
-
-/* ISSUE-05 FIX: Missing .mobile-setting-box class used in sender.html */
+/* Missing .mobile-setting-box class used in sender.html */
 .mobile-setting-box {
     background: rgba(14, 22, 38, 0.7);
     border: 1px solid var(--border-glass);
