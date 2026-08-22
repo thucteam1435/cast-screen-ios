@@ -24,7 +24,8 @@ export default {
         }
 
         // 1. WebSocket Signaling Endpoint (/ws)
-        if (url.pathname === '/ws' && request.headers.get('Upgrade') === 'websocket') {
+        const isWsUpgrade = (request.headers.get('Upgrade') || request.headers.get('upgrade') || '').toLowerCase() === 'websocket';
+        if (url.pathname === '/ws' && isWsUpgrade) {
             const roomId = url.searchParams.get('room') || 'default';
             const role = url.searchParams.get('role') || 'receiver';
 
@@ -39,7 +40,22 @@ export default {
             const roomPeers = wsRooms.get(roomId);
             roomPeers.add(server);
 
+            // Immediate handshake confirmation
+            try {
+                server.send(JSON.stringify({ type: 'connected', roomId, role }));
+            } catch (e) {}
+
             server.addEventListener('message', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    // Respond to ping heartbeats immediately
+                    if (data.type === 'ping') {
+                        server.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+                        return;
+                    }
+                } catch (e) {}
+
+                // Broadcast message to all other peers in the room
                 for (const peer of roomPeers) {
                     if (peer !== server && peer.readyState === 1) { // 1 = WebSocket.OPEN
                         try {
@@ -49,12 +65,15 @@ export default {
                 }
             });
 
-            server.addEventListener('close', () => {
+            const cleanup = () => {
                 roomPeers.delete(server);
                 if (roomPeers.size === 0) {
                     wsRooms.delete(roomId);
                 }
-            });
+            };
+
+            server.addEventListener('close', cleanup);
+            server.addEventListener('error', cleanup);
 
             return new Response(null, {
                 status: 101,
@@ -62,6 +81,7 @@ export default {
                 headers: corsHeaders
             });
         }
+
 
         // 2. HTTP Polling Signaling (/signal/poll)
         if (url.pathname === '/signal/poll') {

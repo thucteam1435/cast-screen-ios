@@ -56,11 +56,14 @@ class WebRTCManager {
                 }
                 // BUG-04/05 FIX: Notify when signaling is ready
                 this._notifySignalingReady();
+                // Send keepalive ping every 10 seconds to keep connection active
+                this._startPingInterval();
             };
             
             this.ws.onmessage = async (event) => {
                 try {
                     const msg = JSON.parse(event.data);
+                    if (msg.type === 'pong' || msg.type === 'connected') return;
                     await this._handleSignalingMessage(msg);
                 } catch (err) {
                     console.error('[WebRTC] Signaling JSON error:', err);
@@ -69,17 +72,38 @@ class WebRTCManager {
             
             this.ws.onclose = () => {
                 this.isWsConnected = false;
+                this._stopPingInterval();
                 this._startHttpPollingFallback();
             };
             
             this.ws.onerror = () => {
                 this.isWsConnected = false;
+                this._stopPingInterval();
                 this._startHttpPollingFallback();
             };
         } catch (e) {
             this._startHttpPollingFallback();
         }
     }
+
+    _startPingInterval() {
+        this._stopPingInterval();
+        this._pingInterval = setInterval(() => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                try {
+                    this.ws.send(JSON.stringify({ type: 'ping' }));
+                } catch (e) {}
+            }
+        }, 10000);
+    }
+
+    _stopPingInterval() {
+        if (this._pingInterval) {
+            clearInterval(this._pingInterval);
+            this._pingInterval = null;
+        }
+    }
+
 
     /** BUG-04/05 FIX: Internal method to trigger signaling ready callback once */
     _notifySignalingReady() {
