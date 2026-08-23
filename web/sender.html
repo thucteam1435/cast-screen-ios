@@ -302,8 +302,10 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/webrtc_manager.js?v=3.4"></script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="js/webrtc_manager.js?v=3.5"></script>
     <script>
+
         // Parse URL params
         const urlParams = new URLSearchParams(window.location.search);
         let roomId = urlParams.get('room') || 'default';

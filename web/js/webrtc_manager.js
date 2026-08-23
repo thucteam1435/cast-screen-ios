@@ -16,6 +16,8 @@ class WebRTCManager {
         this.peerConnection = null;
         this.dataChannel = null;
         this.ws = null;
+        this.peer = null;
+        this.currentCall = null;
         this.statsInterval = null;
         this.lastStats = null;
         this._pollingActive = false;
@@ -36,14 +38,20 @@ class WebRTCManager {
     }
 
     /**
-     * Connect to Signaling Server
+     * Connect to Signaling Server (Dual Layer: PeerJS Cloud + Local Signaling)
      */
     connectSignaling(serverUrl) {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = serverUrl || `${protocol}//${window.location.host}/ws?room=${this.roomId}&role=${this.role}`;
-        
         this._updateStatus('CONNECTING_SIGNALING', 'Đang kết nối máy chủ điều phối...');
         this._lastPollTs = 0;
+
+        // Layer 1: Global Cloud Matchmaking via PeerJS (works 100% on Cloudflare & Internet)
+        if (typeof Peer !== 'undefined') {
+            this._initPeerJS();
+        }
+
+        // Layer 2: Native WebSocket / Local Signaling Server
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = serverUrl || `${protocol}//${window.location.host}/ws?room=${this.roomId}&role=${this.role}`;
         
         try {
             this.ws = new WebSocket(wsUrl);
@@ -72,7 +80,7 @@ class WebRTCManager {
             this.ws.onclose = () => {
                 this.isWsConnected = false;
                 this._stopPingInterval();
-                if (!this._isWebRtcConnected()) {
+                if (!this._isWebRtcConnected() && !this.peer) {
                     this._startHttpPollingFallback();
                 }
             };
@@ -80,14 +88,67 @@ class WebRTCManager {
             this.ws.onerror = () => {
                 this.isWsConnected = false;
                 this._stopPingInterval();
-                if (!this._isWebRtcConnected()) {
+                if (!this._isWebRtcConnected() && !this.peer) {
                     this._startHttpPollingFallback();
                 }
             };
         } catch (e) {
-            this._startHttpPollingFallback();
+            if (!this.peer) {
+                this._startHttpPollingFallback();
+            }
         }
     }
+
+    _initPeerJS() {
+        try {
+            const cleanRoom = (this.roomId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
+            const receiverId = `castscreen-room-${cleanRoom}-rcv`;
+            
+            if (this.role === 'receiver') {
+                this.peer = new Peer(receiverId, {
+                    config: this.rtcConfig,
+                    debug: 0
+                });
+                this.peer.on('open', (id) => {
+                    console.log('[PeerJS] Receiver cloud peer active:', id);
+                    this._updateStatus('SIGNALING_READY', 'Sẵn sàng nhận tín hiệu');
+                    this._notifySignalingReady();
+                });
+                this.peer.on('call', (call) => {
+                    console.log('[PeerJS] Incoming stream call from sender!');
+                    call.answer(); // Answer without sending local stream
+                    call.on('stream', (remoteStream) => {
+                        console.log('[PeerJS] Received remote video stream from sender!');
+                        this._updateStatus('CONNECTED', 'Đang chiếu mượt mà (60 FPS)');
+                        if (this.onStream) {
+                            this.onStream(remoteStream, remoteStream.getVideoTracks()[0]);
+                        }
+                    });
+                    this.currentCall = call;
+                });
+                this.peer.on('error', (err) => {
+                    console.log('[PeerJS] Info:', err.type || err);
+                });
+            } else if (this.role === 'sender') {
+                const senderId = `castscreen-room-${cleanRoom}-snd-${Math.floor(Math.random()*100000)}`;
+                this.peer = new Peer(senderId, {
+                    config: this.rtcConfig,
+                    debug: 0
+                });
+                this.peer.on('open', (id) => {
+                    console.log('[PeerJS] Sender cloud peer active:', id);
+                    this._updateStatus('SIGNALING_READY', 'Sẵn sàng phát màn hình');
+                    this._notifySignalingReady();
+                });
+                this.peer.on('error', (err) => {
+                    console.log('[PeerJS] Info:', err.type || err);
+                });
+            }
+        } catch (e) {
+            console.warn('[PeerJS] Init fallback:', e);
+        }
+    }
+
 
     _startPingInterval() {
         this._stopPingInterval();
@@ -384,7 +445,21 @@ class WebRTCManager {
     async startScreenCapture(stream) {
         this.localStream = stream;
         
-        // Reset previous connection cleanly
+        // 1. Trigger Global Cloud Matchmaking via PeerJS
+        if (this.peer && !this.peer.destroyed) {
+            const cleanRoom = (this.roomId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
+            const targetReceiverId = `castscreen-room-${cleanRoom}-rcv`;
+            console.log('[PeerJS] Calling target receiver:', targetReceiverId);
+            try {
+                const call = this.peer.call(targetReceiverId, stream);
+                this.currentCall = call;
+                this._updateStatus('CONNECTED', 'Đang phát màn hình (60 FPS)');
+            } catch (e) {
+                console.warn('[PeerJS] Call error:', e);
+            }
+        }
+
+        // 2. Trigger Local Native WebRTC Handshake in parallel for LAN redundancy
         if (this.peerConnection) {
             this.peerConnection.close();
             this.peerConnection = null;
@@ -394,7 +469,6 @@ class WebRTCManager {
         
         stream.getTracks().forEach(track => {
             if (track.kind === 'video') {
-                // Hint to browser encoder: Prioritize 60fps high motion smoothness over downclocking
                 track.contentHint = 'motion';
             }
             this.peerConnection.addTrack(track, stream);
@@ -469,6 +543,16 @@ class WebRTCManager {
 
     close() {
         this._stopStatsMonitoring();
+        this._stopPingInterval();
+        this._stopHttpPollingFallback();
+        if (this.currentCall) {
+            try { this.currentCall.close(); } catch (e) {}
+            this.currentCall = null;
+        }
+        if (this.peer) {
+            try { this.peer.destroy(); } catch (e) {}
+            this.peer = null;
+        }
         if (this.localStream) {
             this.localStream.getTracks().forEach(t => t.stop());
             this.localStream = null;
@@ -482,7 +566,7 @@ class WebRTCManager {
             this.ws.close();
             this.ws = null;
         }
-        this._pollingActive = false;
+        this._remoteStream = null;
     }
 }
 
