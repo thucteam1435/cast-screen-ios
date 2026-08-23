@@ -31,15 +31,15 @@ function installAgentCheck(){
 }
 async function checkAgent(){
  if(!isHost||checkBusy)return;checkBusy=true;const dot=$('agentDot'),install=$('install'),btn=$('checkAgent');if(btn)btn.disabled=true;
- try{const h=await agent('/health');agentOnline=!!h.ok;if(!agentOnline)throw 0;const s=await agent('/airplay/status');agentToken=s.token||'';if(dot)dot.className='dot on';set('agentText','🟢 Agent đang chạy. AirPlay chỉ bật khi iPhone ở trong phòng.');if(install)install.hidden=true}
+ try{const h=await agent('/health');agentOnline=!!h.ok;if(!agentOnline)throw 0;const s=await agent('/airplay/status');agentToken=s.token||'';if(dot)dot.className='dot on';set('agentText',iosPresent?'🟢 Agent đang chạy · iPhone đã vào phòng.':'🟢 Agent đang chạy · Chờ iPhone vào phòng.');if(install)install.hidden=true}
  catch(_){agentOnline=false;if(dot)dot.className='dot';set('agentText','🔴 Agent chưa chạy hoặc chưa được cài trên PC Host.');if(install)install.hidden=false}
  if(btn){btn.disabled=false;btn.textContent=agentOnline?'🔄 Kiểm tra lại Agent':'🔄 Kiểm tra Agent'}checkBusy=false;
 }
 async function startAirplay(){if(!isHost||!agentOnline||!iosPresent)return;try{if(!agentToken){const s=await agent('/airplay/status');agentToken=s.token||''}await agent('/airplay/start',{method:'POST',headers:{'Content-Type':'application/json','X-CastScreen-Agent-Token':agentToken,'X-CastScreen-iOS-Confirmed':'true'},body:JSON.stringify({roomId:room,resolution:'1920x1080',fps:60,sharpen:0})});set('agentText','🟢 Agent đang chạy · 🟢 iPhone đã vào phòng · AirPlay đang bật')}catch(e){console.warn('[CastScreen] AirPlay start failed',e)}}
 async function stopAirplay(){if(!isHost||!agentOnline)return;try{await agent('/airplay/stop',{method:'POST',headers:agentToken?{'X-CastScreen-Agent-Token':agentToken}:{}})}catch(_){} }
-function bind(){
+async function bind(){
  enforceRole();installAgentCheck();
- if(isHost){checkAgent();window.addEventListener('castscreen-client-platform',e=>{iosPresent=e.detail?.platform==='ios';if(iosPresent)startAirplay();else stopAirplay()});const poll=setInterval(checkAgent,5000);window.addEventListener('pagehide',()=>{clearInterval(poll);stopAirplay()},{once:true})}
+ if(isHost){await checkAgent();if(!iosPresent)await stopAirplay();window.addEventListener('castscreen-client-platform',e=>{iosPresent=e.detail?.platform==='ios';if(iosPresent)startAirplay();else stopAirplay()});const poll=setInterval(()=>{checkAgent()},5000);window.addEventListener('pagehide',()=>{clearInterval(poll);stopAirplay()},{once:true})}
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(bind,0),{once:true});else setTimeout(bind,0);
 const mo=new MutationObserver(()=>enforceRole());mo.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['style','hidden']});
