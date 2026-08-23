@@ -1,31 +1,34 @@
 /**
- * WebRTC P2P Stream Manager for Cast Screen Web (High Performance Esports Edition)
- * - Forces 30-50 Mbps Ultra-High Bitrate & 60 FPS Hardware Acceleration (NVENC / GPU)
- * - Measures Real-World Glass-to-Glass Latency, Jitter, and Presentation FPS
- * - Supports seamless window switching without hanging
+ * Bidirectional WebRTC manager for Cast Screen Web.
+ *
+ * Two machines can open the same room and both can send/receive screen streams.
+ * A deterministic room hub peer is used only for discovery; media stays P2P.
+ * No WebSocket /signal backend is required for the web-to-web path.
  */
 class WebRTCManager {
     constructor(options = {}) {
-        this.role = options.role || 'receiver';
-        this.roomId = options.roomId || '';
+        this.role = options.role || 'peer';
+        this.roomId = String(options.roomId || 'default').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'default';
         this.onStream = options.onStream || null;
         this.onStatusChange = options.onStatusChange || null;
         this.onMetrics = options.onMetrics || null;
         this.onSignalingReady = options.onSignalingReady || null;
-        
-        this.peerConnection = null;
-        this.dataChannel = null;
-        this.ws = null;
+
         this.peer = null;
+        this.peerId = '';
+        this.isHub = false;
+        this.remotePeerId = '';
+        this.hubConnection = null;
         this.currentCall = null;
+        this.localStream = null;
+        this.remoteStream = null;
         this.statsInterval = null;
-        this.lastStats = null;
-        this._pollingActive = false;
-        this._lastPollTs = 0;
+        this.retryTimer = null;
+        this._closed = false;
         this._signalingReady = false;
-        // FIX: Queue ICE candidates that arrive before remote description is set
-        this._pendingCandidates = [];
-        
+        this._lastFramesDecoded = 0;
+        this._lastStatsTimestamp = 0;
+
         this.rtcConfig = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -37,494 +40,327 @@ class WebRTCManager {
         };
     }
 
-    /**
-     * Connect to Signaling Server (Dual Layer: PeerJS Cloud + Local Signaling)
-     */
-    connectSignaling(serverUrl) {
-        this._updateStatus('CONNECTING_SIGNALING', 'Đang kết nối máy chủ điều phối...');
-        this._lastPollTs = 0;
+    get hubId() {
+        return `castscreen-room-${this.roomId}-hub`;
+    }
 
-        // Layer 1: Global Cloud Matchmaking via PeerJS (works 100% on Cloudflare & Internet)
-        if (typeof Peer !== 'undefined') {
-            this._initPeerJS();
+    connectSignaling() {
+        this._closed = false;
+        this._updateStatus('CONNECTING_SIGNALING', 'Đang tham gia phòng...');
+        this._createHubOrNode();
+    }
+
+    _createHubOrNode() {
+        if (this._closed) return;
+        this._destroyPeerOnly();
+        const peer = new Peer(this.hubId, { config: this.rtcConfig, debug: 0 });
+        this.peer = peer;
+
+        peer.on('open', (id) => {
+            this.peerId = id;
+            this.isHub = true;
+            console.log('[PeerJS] Room hub active:', id);
+            this._bindHubHandlers();
+            this._updateStatus('SIGNALING_READY', 'Đang chờ máy thứ hai...');
+            this._notifySignalingReady();
+        });
+
+        peer.on('error', (err) => {
+            console.warn('[PeerJS] Hub error:', err?.type || err);
+            if (err && (err.type === 'unavailable-id' || err.type === 'id-taken')) {
+                this._becomeNode();
+            } else if (!this._closed) {
+                this._scheduleReconnect();
+            }
+        });
+
+        peer.on('disconnected', () => {
+            if (!this._closed) this._scheduleReconnect();
+        });
+
+        peer.on('close', () => {
+            if (!this._closed) this._scheduleReconnect();
+        });
+    }
+
+    _becomeNode() {
+        if (this._closed) return;
+        this._destroyPeerOnly();
+
+        const nodeId = `castscreen-room-${this.roomId}-node-${Math.random().toString(36).slice(2, 10)}`;
+        const peer = new Peer(nodeId, { config: this.rtcConfig, debug: 0 });
+        this.peer = peer;
+        this.isHub = false;
+
+        peer.on('open', (id) => {
+            this.peerId = id;
+            console.log('[PeerJS] Node active:', id);
+            this._connectToHub();
+        });
+
+        peer.on('call', (call) => this._handleIncomingCall(call));
+        peer.on('error', (err) => {
+            console.warn('[PeerJS] Node error:', err?.type || err);
+            if (!this._closed) this._scheduleReconnect();
+        });
+        peer.on('disconnected', () => {
+            if (!this._closed) this._scheduleReconnect();
+        });
+        peer.on('close', () => {
+            if (!this._closed) this._scheduleReconnect();
+        });
+    }
+
+    _bindHubHandlers() {
+        this.peer.on('connection', (conn) => {
+            console.log('[PeerJS] Node joined:', conn.peer);
+            this._acceptHubConnection(conn);
+        });
+        this.peer.on('call', (call) => this._handleIncomingCall(call));
+    }
+
+    _acceptHubConnection(conn) {
+        if (this.remotePeerId && this.remotePeerId !== conn.peer) {
+            try { conn.close(); } catch (_) {}
+            return;
         }
 
-        // Layer 2: Native WebSocket / Local Signaling Server
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = serverUrl || `${protocol}//${window.location.host}/ws?room=${this.roomId}&role=${this.role}`;
-        
-        try {
-            this.ws = new WebSocket(wsUrl);
-            
-            this.ws.onopen = () => {
-                this.isWsConnected = true;
-                this._stopHttpPollingFallback();
-                this._updateStatus('SIGNALING_READY', 'Máy chủ tín hiệu sẵn sàng');
-                if (this.role === 'sender') {
-                    this._sendSignaling({ type: 'ready', roomId: this.roomId });
-                }
+        this.hubConnection = conn;
+        this.remotePeerId = conn.peer;
+        conn.on('open', () => {
+            conn.send({ type: 'room-ready', peerId: this.peerId, roomId: this.roomId });
+            this._updateStatus('CONNECTED', 'Đã kết nối máy thứ hai');
+            this._notifySignalingReady();
+            this._callRemoteIfPossible();
+        });
+        conn.on('data', (data) => {
+            if (data?.type === 'hello') {
+                this.remotePeerId = data.peerId || conn.peer;
+                this._updateStatus('CONNECTED', 'Đã kết nối máy thứ hai');
                 this._notifySignalingReady();
-                this._startPingInterval();
-            };
-            
-            this.ws.onmessage = async (event) => {
-                try {
-                    const msg = JSON.parse(event.data);
-                    if (msg.type === 'pong' || msg.type === 'connected') return;
-                    await this._handleSignalingMessage(msg);
-                } catch (err) {
-                    console.error('[WebRTC] Signaling JSON error:', err);
-                }
-            };
-            
-            this.ws.onclose = () => {
-                this.isWsConnected = false;
-                this._stopPingInterval();
-                if (!this._isWebRtcConnected() && !this.peer) {
-                    this._startHttpPollingFallback();
-                }
-            };
-            
-            this.ws.onerror = () => {
-                this.isWsConnected = false;
-                this._stopPingInterval();
-                if (!this._isWebRtcConnected() && !this.peer) {
-                    this._startHttpPollingFallback();
-                }
-            };
-        } catch (e) {
-            if (!this.peer) {
-                this._startHttpPollingFallback();
+                this._callRemoteIfPossible();
             }
-        }
+        });
+        conn.on('close', () => this._handleRemoteGone());
+        conn.on('error', () => this._handleRemoteGone());
+
+        // The fixed hub peer is also the media endpoint.
+        if (this.localStream) this._callRemoteIfPossible();
     }
 
-    _initPeerJS() {
+    _connectToHub() {
+        if (!this.peer || this.peer.destroyed || this._closed) return;
+        console.log('[PeerJS] Connecting to room hub:', this.hubId);
+        const conn = this.peer.connect(this.hubId, { reliable: true, serialization: 'json' });
+        this.hubConnection = conn;
+
+        conn.on('open', () => {
+            console.log('[PeerJS] Connected to room hub');
+            this.remotePeerId = this.hubId;
+            conn.send({ type: 'hello', peerId: this.peerId, roomId: this.roomId });
+            this._updateStatus('CONNECTED', 'Đã kết nối máy thứ hai');
+            this._notifySignalingReady();
+            this._callRemoteIfPossible();
+        });
+        conn.on('data', (data) => {
+            if (data?.type === 'room-ready') {
+                this.remotePeerId = data.peerId || this.hubId;
+                this._updateStatus('CONNECTED', 'Đã kết nối máy thứ hai');
+                this._notifySignalingReady();
+                this._callRemoteIfPossible();
+            }
+        });
+        conn.on('close', () => this._handleRemoteGone());
+        conn.on('error', () => this._handleRemoteGone());
+    }
+
+    _handleIncomingCall(call) {
+        console.log('[PeerJS] Incoming media call from:', call.peer);
+        this.remotePeerId = call.peer;
         try {
-            const cleanRoom = (this.roomId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
-            const receiverId = `castscreen-room-${cleanRoom}-rcv`;
-            
-            if (this.role === 'receiver') {
-                this.peer = new Peer(receiverId, {
-                    config: this.rtcConfig,
-                    debug: 0
-                });
-                this.peer.on('open', (id) => {
-                    console.log('[PeerJS] Receiver cloud peer active:', id);
-                    this._updateStatus('SIGNALING_READY', 'Sẵn sàng nhận tín hiệu');
-                    this._notifySignalingReady();
-                });
-                this.peer.on('call', (call) => {
-                    console.log('[PeerJS] Incoming stream call from sender!');
-                    call.answer(); // Answer without sending local stream
-                    call.on('stream', (remoteStream) => {
-                        console.log('[PeerJS] Received remote video stream from sender!');
-                        this._updateStatus('CONNECTED', 'Đang chiếu mượt mà (60 FPS)');
-                        if (this.onStream) {
-                            this.onStream(remoteStream, remoteStream.getVideoTracks()[0]);
-                        }
-                    });
-                    this.currentCall = call;
-                });
-                this.peer.on('error', (err) => {
-                    console.log('[PeerJS] Info:', err.type || err);
-                });
-            } else if (this.role === 'sender') {
-                const senderId = `castscreen-room-${cleanRoom}-snd-${Math.floor(Math.random()*100000)}`;
-                this.peer = new Peer(senderId, {
-                    config: this.rtcConfig,
-                    debug: 0
-                });
-                this.peer.on('open', (id) => {
-                    console.log('[PeerJS] Sender cloud peer active:', id);
-                    this._updateStatus('SIGNALING_READY', 'Sẵn sàng phát màn hình');
-                    this._notifySignalingReady();
-                });
-                this.peer.on('error', (err) => {
-                    console.log('[PeerJS] Info:', err.type || err);
-                });
-            }
+            // Answer with our stream when available. This makes the path genuinely bidirectional.
+            call.answer(this.localStream || undefined);
         } catch (e) {
-            console.warn('[PeerJS] Init fallback:', e);
+            console.warn('[PeerJS] answer error:', e);
+            try { call.answer(); } catch (_) {}
+        }
+
+        call.on('stream', (stream) => {
+            console.log('[PeerJS] Remote stream received');
+            this.remoteStream = stream;
+            this._bindRemoteStream(stream);
+            this._updateStatus('CONNECTED', 'Đang truyền màn hình');
+            this._startStatsMonitoring();
+        });
+        call.on('close', () => {
+            if (this.currentCall === call) this.currentCall = null;
+        });
+        call.on('error', (err) => console.warn('[PeerJS] Media call error:', err));
+        this.currentCall = call;
+    }
+
+    _bindRemoteStream(stream) {
+        if (this.onStream) {
+            this.onStream(stream, stream.getVideoTracks()[0] || null);
         }
     }
 
-
-    _startPingInterval() {
-        this._stopPingInterval();
-        this._pingInterval = setInterval(() => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                try {
-                    this.ws.send(JSON.stringify({ type: 'ping' }));
-                } catch (e) {}
-            }
-        }, 15000);
-    }
-
-    _stopPingInterval() {
-        if (this._pingInterval) {
-            clearInterval(this._pingInterval);
-            this._pingInterval = null;
-        }
-    }
-
-    /** Internal method to trigger signaling ready callback once */
-    _notifySignalingReady() {
-        if (this._signalingReady) return; // only fire once
-        this._signalingReady = true;
-        if (this.onSignalingReady) {
-            this.onSignalingReady();
-        }
-    }
-
-    _isWebRtcConnected() {
-        return this.peerConnection && 
-            (this.peerConnection.iceConnectionState === 'connected' || 
-             this.peerConnection.iceConnectionState === 'completed' ||
-             this.peerConnection.connectionState === 'connected');
-    }
-
-    _startHttpPollingFallback() {
-        if (this._pollingActive || this._isWebRtcConnected() || this.isWsConnected) return;
-        this._pollingActive = true;
-        this._updateStatus('SIGNALING_READY', 'Máy chủ tín hiệu sẵn sàng');
-        if (this.role === 'sender') {
-            this._sendSignaling({ type: 'ready', roomId: this.roomId });
-        }
-        this._notifySignalingReady();
-
-        const poll = async () => {
-            if (!this._pollingActive || this._isWebRtcConnected()) {
-                this._stopHttpPollingFallback();
-                return;
-            }
-            try {
-                const res = await fetch(`/signal/poll?room=${this.roomId}&role=${this.role}&since=${this._lastPollTs}`);
-                if (res.ok) {
-                    const msgs = await res.json();
-                    for (const m of msgs) {
-                        if (m.ts > this._lastPollTs) this._lastPollTs = m.ts;
-                        if (m.data) {
-                            await this._handleSignalingMessage(m.data);
-                        }
-                    }
-                }
-            } catch (e) {
-                // ignore timeout
-            }
-            // Gentle 1.5s interval only while waiting; completely stopped once connected
-            if (this._pollingActive && !this._isWebRtcConnected()) {
-                this._pollTimeout = setTimeout(poll, 1500);
-            }
-        };
-        poll();
-    }
-
-    _stopHttpPollingFallback() {
-        this._pollingActive = false;
-        if (this._pollTimeout) {
-            clearTimeout(this._pollTimeout);
-            this._pollTimeout = null;
-        }
-    }
-
-    _sendSignaling(data) {
-        data.from = this.role;
-        data.roomId = this.roomId;
-        // Priority 1: Send via WebSocket (0 HTTP requests!)
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            try {
-                this.ws.send(JSON.stringify(data));
-                return;
-            } catch (e) {}
-        }
-        // Fallback: Send via HTTP POST only if WebSocket is unavailable
-        fetch('/signal/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        }).catch(e => console.warn('[WebRTC] Signal POST error:', e));
-    }
-
-
-
-    /**
-     * Boost WebRTC Video Bitrate (30 Mbps) and Opus Audio Bitrate safely
-     */
-    _boostSdpBitrate(sdpStr) {
-        if (!sdpStr) return sdpStr;
-        let sdp = sdpStr;
-        // Inject video bandwidth (30 Mbps) strictly into the video media section
-        if (sdp.includes('m=video') && !sdp.includes('b=AS:')) {
-            sdp = sdp.replace(/(m=video[^\r\n]*\r\n)/, '$1b=AS:30000\r\nb=TIAS:30000000\r\n');
-        }
-        // Enhance existing Opus fmtp line for stereo 128kbps audio
-        if (sdp.includes('opus/48000')) {
-            const m = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
-            if (m) {
-                const pt = m[1];
-                const fmtpRegex = new RegExp(`a=fmtp:${pt} (.*)\r\n`);
-                if (fmtpRegex.test(sdp)) {
-                    sdp = sdp.replace(fmtpRegex, (match, params) => {
-                        let newParams = params;
-                        if (!newParams.includes('stereo=')) newParams += ';stereo=1;sprop-stereo=1';
-                        if (!newParams.includes('maxaveragebitrate=')) newParams += ';maxaveragebitrate=128000';
-                        return `a=fmtp:${pt} ${newParams}\r\n`;
-                    });
-                }
-            }
-        }
-        return sdp;
-    }
-
-
-    async _handleSignalingMessage(msg) {
-        if (!this.peerConnection) {
-            this._initPeerConnection();
+    _callRemoteIfPossible() {
+        if (this._closed || !this.localStream || !this.remotePeerId || !this.peer || this.peer.destroyed) return;
+        if (this.currentCall && !this.currentCall.open) {
+            try { this.currentCall.close(); } catch (_) {}
+            this.currentCall = null;
         }
 
-        switch (msg.type) {
-            case 'ready':
-                if (this.role === 'receiver') {
-                    // FIX: Tell sender that receiver is ready to accept an offer
-                    this._sendSignaling({ type: 'receiver_ready', roomId: this.roomId });
-                } else if (this.role === 'sender' && this.localStream) {
-                    await this._createAndSendOffer();
-                }
-                break;
+        // If an existing call is alive, it already carries the current stream.
+        if (this.currentCall) return;
 
-            case 'receiver_ready':
-                // FIX: Sender now knows receiver is listening — create offer
-                if (this.role === 'sender' && this.localStream) {
-                    await this._createAndSendOffer();
-                }
-                break;
-                
-            case 'offer':
-                if (this.role === 'receiver') {
-                    const offerSdp = msg.sdp && msg.sdp.sdp ? msg.sdp.sdp : msg.sdp;
-                    const sdp = new RTCSessionDescription({
-                        type: 'offer',
-                        sdp: this._boostSdpBitrate(offerSdp)
-                    });
-                    await this.peerConnection.setRemoteDescription(sdp);
-                    // FIX: Flush queued ICE candidates now that remote description is set
-                    await this._flushPendingCandidates();
-                    const answer = await this.peerConnection.createAnswer();
-                    const boostedAnswer = new RTCSessionDescription({
-                        type: 'answer',
-                        sdp: this._boostSdpBitrate(answer.sdp)
-                    });
-                    await this.peerConnection.setLocalDescription(boostedAnswer);
-                    this._sendSignaling({ type: 'answer', sdp: boostedAnswer, roomId: this.roomId });
-                }
-                break;
-                
-            case 'answer':
-                if (this.role === 'sender') {
-                    const answerSdp = msg.sdp && msg.sdp.sdp ? msg.sdp.sdp : msg.sdp;
-                    const sdp = new RTCSessionDescription({
-                        type: 'answer',
-                        sdp: this._boostSdpBitrate(answerSdp)
-                    });
-                    await this.peerConnection.setRemoteDescription(sdp);
-                    // FIX: Flush queued ICE candidates after remote description set
-                    await this._flushPendingCandidates();
-                }
-                break;
-                
-            case 'candidate':
-                if (msg.candidate) {
-                    // FIX: Queue candidate if remote description not set yet
-                    if (this.peerConnection.remoteDescription) {
-                        try {
-                            await this.peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
-                        } catch (e) {
-                            console.error('[WebRTC] Candidate error:', e);
-                        }
-                    } else {
-                        console.log('[WebRTC] Queuing ICE candidate (remote desc not ready yet)');
-                        this._pendingCandidates.push(msg.candidate);
-                    }
-                }
-                break;
-
-            case 'stream_stopped':
-                if (this.role === 'receiver') {
-                    this._updateStatus('DISCONNECTED', 'Người phát đã dừng chiếu');
-                }
-                break;
-        }
-    }
-
-    /** FIX: Apply all queued ICE candidates after remote description is set */
-    async _flushPendingCandidates() {
-        while (this._pendingCandidates.length > 0) {
-            const candidate = this._pendingCandidates.shift();
-            try {
-                await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-            } catch (e) {
-                console.error('[WebRTC] Queued candidate error:', e);
-            }
-        }
-    }
-
-    _initPeerConnection() {
-        if (this.peerConnection) return;
-        
-        this.peerConnection = new RTCPeerConnection(this.rtcConfig);
-        this._remoteStream = null;
-        
-        this.peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                this._sendSignaling({
-                    type: 'candidate',
-                    candidate: event.candidate,
-                    roomId: this.roomId
-                });
-            }
-        };
-
-        this.peerConnection.oniceconnectionstatechange = () => {
-            const state = this.peerConnection.iceConnectionState;
-            console.log('[WebRTC] ICE Connection State:', state);
-            if (state === 'connected' || state === 'completed') {
-                this._stopHttpPollingFallback();
-                this._updateStatus('CONNECTED', 'Đang chiếu mượt mà (GPU 60 FPS)');
+        try {
+            console.log('[PeerJS] Calling remote peer:', this.remotePeerId);
+            const call = this.peer.call(this.remotePeerId, this.localStream, { metadata: { roomId: this.roomId } });
+            this.currentCall = call;
+            call.on('stream', (stream) => {
+                this.remoteStream = stream;
+                this._bindRemoteStream(stream);
+                this._updateStatus('CONNECTED', 'Đang truyền màn hình');
                 this._startStatsMonitoring();
-            } else if (state === 'failed') {
-                this._updateStatus('ICE_FAILED', 'ICE negotiation thất bại');
-                this._stopStatsMonitoring();
-            } else if (state === 'disconnected') {
-                this._updateStatus('DISCONNECTED', 'Mất kết nối');
-                this._stopStatsMonitoring();
-            }
-        };
-
-
-        if (this.role === 'receiver') {
-            this.peerConnection.addTransceiver('video', { direction: 'recvonly' });
-            this.peerConnection.addTransceiver('audio', { direction: 'recvonly' });
-
-            this.peerConnection.ontrack = (event) => {
-                console.log('[WebRTC] Received track:', event.track.kind);
-                if (!this._remoteStream) {
-                    this._remoteStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream();
+            });
+            call.on('close', () => {
+                if (this.currentCall === call) this.currentCall = null;
+                if (!this._closed && this.remotePeerId && this.localStream) {
+                    setTimeout(() => this._callRemoteIfPossible(), 300);
                 }
-                if (!this._remoteStream.getTracks().includes(event.track)) {
-                    this._remoteStream.addTrack(event.track);
+            });
+            call.on('error', (err) => {
+                console.warn('[PeerJS] Outgoing media call error:', err);
+                if (!this._closed) {
+                    this.currentCall = null;
+                    setTimeout(() => this._callRemoteIfPossible(), 800);
                 }
-                if (this.onStream) {
-                    this.onStream(this._remoteStream, event.track);
-                }
-            };
+            });
+        } catch (e) {
+            console.warn('[PeerJS] call() failed:', e);
         }
     }
 
-    async _createAndSendOffer() {
-        if (!this.peerConnection) return;
-        const offer = await this.peerConnection.createOffer({
-            offerToReceiveVideo: false,
-            offerToReceiveAudio: false
-        });
-        const boostedOffer = new RTCSessionDescription({
-            type: 'offer',
-            sdp: this._boostSdpBitrate(offer.sdp)
-        });
-        await this.peerConnection.setLocalDescription(boostedOffer);
-        this._sendSignaling({
-            type: 'offer',
-            sdp: boostedOffer,
-            roomId: this.roomId
-        });
-    }
-
-    /**
-     * Start broadcasting local screen with 60 FPS motion hint
-     */
     async startScreenCapture(stream) {
+        if (!stream) throw new Error('Không có MediaStream để chia sẻ.');
         this.localStream = stream;
-        
-        // 1. Trigger Global Cloud Matchmaking via PeerJS
-        if (this.peer && !this.peer.destroyed) {
-            const cleanRoom = (this.roomId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
-            const targetReceiverId = `castscreen-room-${cleanRoom}-rcv`;
-            console.log('[PeerJS] Calling target receiver:', targetReceiverId);
-            try {
-                const call = this.peer.call(targetReceiverId, stream);
-                this.currentCall = call;
-                this._updateStatus('CONNECTED', 'Đang phát màn hình (60 FPS)');
-            } catch (e) {
-                console.warn('[PeerJS] Call error:', e);
-            }
-        }
-
-        // 2. Trigger Local Native WebRTC Handshake in parallel for LAN redundancy
-        if (this.peerConnection) {
-            this.peerConnection.close();
-            this.peerConnection = null;
-        }
-
-        this._initPeerConnection();
-        
         stream.getTracks().forEach(track => {
-            if (track.kind === 'video') {
-                track.contentHint = 'motion';
-            }
-            this.peerConnection.addTrack(track, stream);
+            if (track.kind === 'video') track.contentHint = 'motion';
+            track.onended = () => {
+                if (this.localStream === stream) this.stopScreenCapture();
+            };
         });
-
-        await this._createAndSendOffer();
+        this._updateStatus(this.remotePeerId ? 'CONNECTED' : 'SIGNALING_READY', this.remotePeerId ? 'Đang phát màn hình' : 'Đang chờ máy thứ hai...');
+        this._callRemoteIfPossible();
     }
 
-    /**
-     * Measure Real-World Glass-to-Glass Latency, Jitter, and Presentation FPS from WebRTC Stats
-     */
-    _startStatsMonitoring() {
+    stopScreenCapture() {
+        if (!this.localStream) return;
+        this.localStream.getTracks().forEach(track => {
+            try { track.stop(); } catch (_) {}
+        });
+        this.localStream = null;
+        if (this.currentCall) {
+            try { this.currentCall.close(); } catch (_) {}
+            this.currentCall = null;
+        }
+        if (this.remotePeerId) this._updateStatus('CONNECTED', 'Đã kết nối, chưa phát màn hình');
+    }
+
+    _handleRemoteGone() {
+        this.remotePeerId = '';
+        this._signalingReady = false;
         this._stopStatsMonitoring();
-        let lastTimestamp = performance.now();
-        let lastFrames = 0;
+        if (this.currentCall) {
+            try { this.currentCall.close(); } catch (_) {}
+            this.currentCall = null;
+        }
+        if (this.onStatusChange) {
+            this.onStatusChange('DISCONNECTED', 'Máy thứ hai đã ngắt kết nối');
+        }
+        if (!this._closed) {
+            setTimeout(() => this._createHubOrNode(), 500);
+        }
+    }
+
+    _scheduleReconnect() {
+        if (this._closed || this.retryTimer) return;
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = null;
+            this._createHubOrNode();
+        }, 1200);
+    }
+
+    _destroyPeerOnly() {
+        if (this.hubConnection) {
+            try { this.hubConnection.close(); } catch (_) {}
+            this.hubConnection = null;
+        }
+        if (this.currentCall) {
+            try { this.currentCall.close(); } catch (_) {}
+            this.currentCall = null;
+        }
+        if (this.peer) {
+            try { this.peer.destroy(); } catch (_) {}
+            this.peer = null;
+        }
+        this.remotePeerId = '';
+        this.isHub = false;
+    }
+
+    _notifySignalingReady() {
+        if (this._signalingReady) return;
+        this._signalingReady = true;
+        if (this.onSignalingReady) this.onSignalingReady();
+    }
+
+    _updateStatus(code, label) {
+        if (this.onStatusChange) this.onStatusChange(code, label);
+    }
+
+    _startStatsMonitoring() {
+        if (this.statsInterval || !this.peer) return;
+        let previousDecoded = 0;
+        let previousTime = performance.now();
 
         this.statsInterval = setInterval(async () => {
-            if (!this.peerConnection) return;
             try {
-                const stats = await this.peerConnection.getStats();
-                let fps = 60;
-                let ping = 16;
-                let bitrateMbps = 0;
+                if (!this.currentCall || !this.currentCall.peerConnection) return;
+                const pc = this.currentCall.peerConnection;
+                const stats = await pc.getStats();
+                let fps = 0;
+                let rtt = 0;
+                let jitter = 0;
+                let decodeMs = 0;
 
                 stats.forEach(report => {
-                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
-                        if (report.framesPerSecond !== undefined) {
-                            fps = Math.round(report.framesPerSecond);
-                        } else if (report.framesDecoded !== undefined) {
+                    if (report.type === 'inbound-rtp' && (report.kind === 'video' || report.mediaType === 'video')) {
+                        if (Number.isFinite(report.framesPerSecond)) fps = report.framesPerSecond;
+                        if (!fps && Number.isFinite(report.framesDecoded)) {
                             const now = performance.now();
-                            const elapsed = (now - lastTimestamp) / 1000.0;
-                            if (elapsed >= 0.8) {
-                                fps = Math.round((report.framesDecoded - lastFrames) / elapsed);
-                                lastFrames = report.framesDecoded;
-                                lastTimestamp = now;
+                            const dt = (now - previousTime) / 1000;
+                            if (dt > 0.2) {
+                                fps = Math.max(0, (report.framesDecoded - previousDecoded) / dt);
+                                previousDecoded = report.framesDecoded;
+                                previousTime = now;
                             }
                         }
-
-                        // Calculate true pipeline latency (jitter buffer + decode delay)
-                        const jitterMs = (report.jitter || 0) * 1000;
-                        const decodeDelayMs = report.totalDecodeTime && report.framesDecoded 
-                            ? (report.totalDecodeTime / report.framesDecoded) * 1000 
-                            : 8;
-                        const rtt = (report.roundTripTime || 0.015) * 1000;
-                        
-                        // Total glass-to-glass delay
-                        ping = Math.max(12, Math.round(rtt + jitterMs + decodeDelayMs + 6));
+                        if (Number.isFinite(report.jitter)) jitter = report.jitter * 1000;
+                        if (Number.isFinite(report.totalDecodeTime) && report.framesDecoded > 0) {
+                            decodeMs = (report.totalDecodeTime / report.framesDecoded) * 1000;
+                        }
+                    }
+                    if (report.type === 'candidate-pair' && report.state === 'succeeded' && Number.isFinite(report.currentRoundTripTime)) {
+                        rtt = report.currentRoundTripTime * 1000;
                     }
                 });
 
-                if (this.onMetrics) {
-                    this.onMetrics({ fps: Math.max(1, fps), ping: ping });
-                }
-            } catch (e) {
-                // ignore
-            }
+                // This is receiver-side pipeline latency only, not a fake glass-to-glass value.
+                const pipelineMs = Math.max(0, rtt + jitter + decodeMs);
+                if (this.onMetrics) this.onMetrics({ fps: Math.round(fps || 0), ping: Math.round(rtt || 0), pipelineMs: Math.round(pipelineMs) });
+            } catch (_) {}
         }, 500);
     }
 
@@ -535,38 +371,17 @@ class WebRTCManager {
         }
     }
 
-    _updateStatus(code, label) {
-        if (this.onStatusChange) {
-            this.onStatusChange(code, label);
-        }
-    }
-
     close() {
+        this._closed = true;
         this._stopStatsMonitoring();
-        this._stopPingInterval();
-        this._stopHttpPollingFallback();
-        if (this.currentCall) {
-            try { this.currentCall.close(); } catch (e) {}
-            this.currentCall = null;
+        if (this.retryTimer) {
+            clearTimeout(this.retryTimer);
+            this.retryTimer = null;
         }
-        if (this.peer) {
-            try { this.peer.destroy(); } catch (e) {}
-            this.peer = null;
-        }
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(t => t.stop());
-            this.localStream = null;
-        }
-        if (this.peerConnection) {
-            this._sendSignaling({ type: 'stream_stopped', roomId: this.roomId });
-            this.peerConnection.close();
-            this.peerConnection = null;
-        }
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
-        }
-        this._remoteStream = null;
+        this.stopScreenCapture();
+        this._destroyPeerOnly();
+        this.peerId = '';
+        this.remoteStream = null;
     }
 }
 
