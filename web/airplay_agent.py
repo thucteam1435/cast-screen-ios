@@ -2,6 +2,7 @@ import json
 import os
 import secrets
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -16,9 +17,6 @@ HOST = "127.0.0.1"
 PORT = int(os.environ.get("CASTSCREEN_AIRPLAY_PORT", "8765"))
 DENY_COOLDOWN_SECONDS = 12
 
-state_lock = threading.Lock() if False else None
-# initialized below to keep source simple for PyInstaller
-import threading
 state_lock = threading.Lock()
 state = {
     "running": False,
