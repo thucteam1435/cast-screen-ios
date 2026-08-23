@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phòng — Cast Screen Pro</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+:root{--bg:#050914;--card:rgba(11,18,32,.94);--line:rgba(148,163,184,.15);--muted:#94a3b8;--cyan:#00e5ff}
+body{min-height:100vh;background:radial-gradient(circle at top,rgba(0,229,255,.08),transparent 38%),var(--bg)}
+.room{width:min(1180px,94vw);margin:0 auto;padding:22px 0 36px}
+.nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.brand{font-size:22px;font-weight:900}.brand span{color:var(--cyan)}
+.status{padding:8px 12px;border:1px solid var(--line);border-radius:999px;font-size:12px;font-weight:800;color:#cbd5e1}.status.ok{color:#6ee7b7;border-color:rgba(16,185,129,.25)}.status.bad{color:#fda4af;border-color:rgba(244,63,94,.25)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px}.card{background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.28)}
+.stage{aspect-ratio:16/9;min-height:340px;background:#020617;border-radius:20px;overflow:hidden;position:relative}.stage video{width:100%;height:100%;object-fit:contain;background:#020617}.empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:30px;color:var(--muted)}
+.controls{padding:14px;display:flex;gap:9px;flex-wrap:wrap;border-top:1px solid var(--line)}button{border:0;border-radius:11px;padding:12px 15px;font-weight:900;cursor:pointer}.primary{background:linear-gradient(135deg,#00e5ff,#2578ff);color:#041017}.ghost{background:rgba(148,163,184,.08);border:1px solid var(--line);color:#e2e8f0}.danger{background:#f43f5e;color:#fff}
+.side{padding:18px}.eyebrow{font-size:11px;color:var(--cyan);font-weight:900;letter-spacing:.12em}.title{font-size:24px;font-weight:900;margin:6px 0}.muted{color:var(--muted);font-size:13px;line-height:1.5}.code{font-size:42px;font-weight:900;letter-spacing:9px;text-align:center;margin:20px 0}.qr{display:flex;justify-content:center;background:#fff;border-radius:14px;padding:12px;width:max-content;margin:0 auto 16px}.share{display:flex;gap:8px}.share input{flex:1;min-width:0;background:#08111f;color:#fff;border:1px solid var(--line);border-radius:11px;padding:11px 12px;font-size:12px}.info{display:grid;gap:10px;margin-top:18px}.row{display:flex;justify-content:space-between;gap:12px;color:#cbd5e1;font-size:13px}.row strong{color:#fff;text-align:right}.client-note{padding:12px;border-radius:12px;background:rgba(0,229,255,.05);border:1px solid rgba(0,229,255,.12);margin-top:16px}.back{display:inline-block;color:var(--muted);text-decoration:none;margin-top:14px}
+@media(max-width:850px){.layout{grid-template-columns:1fr}.stage{min-height:220px}.room{width:min(96vw,720px)}}
+</style>
+</head>
+<body>
+<main class="room">
+  <div class="nav"><div class="brand">Cast Screen <span>PRO</span></div><div id="status" class="status">ĐANG KẾT NỐI...</div></div>
+  <div class="layout">
+    <section class="card">
+      <div class="stage"><video id="remoteVideo" autoplay playsinline></video><div id="empty" class="empty">Đang chờ thiết bị còn lại kết nối...</div></div>
+      <div class="controls"><button id="share" class="primary">📺 Chia sẻ màn hình</button><button id="unmute" class="ghost" disabled>🔊 Bật âm thanh</button><button id="leave" class="danger">Thoát phòng</button></div>
+    </section>
+    <aside class="card side">
+      <div id="hostPanel">
+        <div class="eyebrow">HOST</div><div class="title">Phòng của bạn</div><div class="muted">Mã phòng không đổi trong suốt phiên này.</div>
+        <div id="code" class="code">------</div><div id="qr" class="qr"></div>
+        <div class="share"><input id="link" readonly><button id="copy" class="primary">Copy</button></div>
+      </div>
+      <div id="clientPanel" style="display:none"><div class="eyebrow">CLIENT</div><div class="title">Đã vào phòng</div><div class="muted">Đây là thiết bị thứ hai. Chủ phòng quyết định vòng đời phòng.</div></div>
+      <div class="info"><div class="row"><span>Phòng</span><strong id="roomInfo">—</strong></div><div class="row"><span>Thiết bị</span><strong id="deviceInfo">1 / 2</strong></div><div class="row"><span>Đường truyền</span><strong id="pathInfo">Đang kiểm tra</strong></div><div class="row"><span>FPS nhận</span><strong id="fpsInfo">—</strong></div><div class="row"><span>RTT</span><strong id="rttInfo">—</strong></div></div>
+      <div class="client-note"><span id="note">Gửi link hoặc QR cho thiết bị thứ hai.</span></div>
+      <a class="back" href="home.html">← Trang chủ</a>
+    </aside>
+  </div>
+</main>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="js/webrtc_manager.js?v=3.9"></script>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+ const q=new URLSearchParams(location.search); const isCreate=q.has('create'); let code=(q.get('host')||q.get('room')||'').replace(/\D/g,'').slice(0,6);
+ if(isCreate||(!code && !q.has('room'))){code=String(Math.floor(100000+Math.random()*900000)); const u=new URL(location.href);u.search='';u.searchParams.set('host',code);history.replaceState({},'',u)}
+ if(!code){location.replace('home.html');return}
+ const isHost=q.has('host')||isCreate;
+ const status=document.getElementById('status'),video=document.getElementById('remoteVideo'),empty=document.getElementById('empty');
+ const share=document.getElementById('share'),unmute=document.getElementById('unmute'),leave=document.getElementById('leave');
+ const hostPanel=document.getElementById('hostPanel'),clientPanel=document.getElementById('clientPanel');
+ const codeEl=document.getElementById('code'),link=document.getElementById('link'),qr=document.getElementById('qr');
+ const roomInfo=document.getElementById('roomInfo'),deviceInfo=document.getElementById('deviceInfo'),pathInfo=document.getElementById('pathInfo'),fpsInfo=document.getElementById('fpsInfo'),rttInfo=document.getElementById('rttInfo'),note=document.getElementById('note');
+ let manager=null,localShared=false,joined=false;
+ function setStatus(text,ok=false,bad=false){status.textContent=text;status.className='status'+(ok?' ok':'')+(bad?' bad':'')}
+ if(isHost){codeEl.textContent=code;const u=new URL(location.href);u.search='';u.searchParams.set('room',code);link.value=u.href;new QRCode(qr,{text:u.href,width:180,height:180});note.textContent='Gửi link hoặc QR cho thiết bị thứ hai.'}else{hostPanel.style.display='none';clientPanel.style.display='block';note.textContent='Đang kết nối tới chủ phòng...'}
+ roomInfo.textContent=code;
+ document.getElementById('copy').onclick=async()=>{await navigator.clipboard.writeText(link.value);document.getElementById('copy').textContent='Đã copy';setTimeout(()=>document.getElementById('copy').textContent='Copy',1200)};
+ manager=new WebRTCManager({role:isHost?'host':'client',isHost,roomId:code,onStream:(stream)=>{video.srcObject=stream;video.muted=true;video.play().catch(()=>{});empty.style.display='none';unmute.disabled=stream.getAudioTracks().length===0;if(stream.getAudioTracks().length) unmute.textContent='🔊 Bật âm thanh';},onStatusChange:(c,l)=>{if(c==='CONNECTED'){joined=true;setStatus(isHost?'ĐÃ KẾT NỐI':'ĐÃ VÀO PHÒNG',true);deviceInfo.textContent='2 / 2';note.textContent=isHost?'Thiết bị thứ hai đã kết nối.':'Đã kết nối với chủ phòng.'}else if(['DISCONNECTED','HOST_GONE','ROOM_NOT_FOUND','ROOM_FULL'].includes(c)){setStatus(l||c,false,true);setTimeout(()=>location.replace('home.html'),900)}else{setStatus(l||c)}},onMetrics:m=>{if(m.fps)fpsInfo.textContent=m.fps+' FPS';if(m.ping)rttInfo.textContent=m.ping+' ms';pathInfo.textContent=m.lan?'LAN trực tiếp':(m.localCandidateType||m.remoteCandidateType||'Đang kiểm tra')}});manager.connectSignaling();
+ share.onclick=async()=>{if(!manager||!manager.remotePeerId){return} if(localShared){manager.stopScreenCapture();localShared=false;share.textContent='📺 Chia sẻ màn hình';share.className='primary';return} try{const stream=await navigator.mediaDevices.getDisplayMedia({video:{width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:60,max:60},cursor:'always'},audio:true});await manager.startScreenCapture(stream);localShared=true;share.textContent='⏹ Dừng chia sẻ';share.className='danger';stream.getVideoTracks()[0]?.addEventListener('ended',()=>share.click(),{once:true})}catch(e){if(e.name!=='NotAllowedError')setStatus('Không thể chia sẻ màn hình',false,true)}};
+ unmute.onclick=()=>{video.muted=false;video.volume=1;video.play().catch(()=>{});unmute.textContent='🔊 Đang bật âm thanh'};
+ leave.onclick=()=>{if(manager)manager.close();location.replace('home.html')};
+ window.addEventListener('pagehide',()=>{try{manager?.close()}catch(_){}});
+});
+</script>
+</body></html>
