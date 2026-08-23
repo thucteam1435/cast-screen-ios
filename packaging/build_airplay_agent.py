@@ -22,6 +22,7 @@ def main():
         "--name", "CastScreenAirPlayAgent",
         "--hidden-import=psutil",
         "--hidden-import=zeroconf",
+        "--hidden-import=web.airplay_media",
         os.path.join(ROOT, "web", "airplay_agent.py"),
     ]
     print("Building CastScreenAirPlayAgent...")
