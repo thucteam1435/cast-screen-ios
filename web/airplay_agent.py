@@ -1,5 +1,6 @@
 import json
 import os
+import queue
 import secrets
 import sys
 import threading
@@ -12,11 +13,14 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from engine.airplay_server import AirPlayServer
+from web.airplay_media import AirplayMediaHub
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("CASTSCREEN_AIRPLAY_PORT", "8765"))
 DENY_COOLDOWN_SECONDS = 12
 LEASE_TIMEOUT_SECONDS = 7
+ALLOWED_RESOLUTIONS = {"1280x720", "1920x1080"}
+ALLOWED_FPS = {30, 60}
 
 state_lock = threading.Lock()
 state = {
@@ -31,9 +35,14 @@ state = {
     "lease_active": False,
     "last_lease": 0.0,
     "room_active": False,
+    "resolution": "1920x1080",
+    "fps": 60,
+    "sharpen": 0,
 }
+
 agent_token = secrets.token_urlsafe(24)
 airplay = AirPlayServer()
+media = AirplayMediaHub(video_port=5000, audio_port=5002)
 
 
 def _set_event(device=None, connected=False, pending=False):
@@ -68,30 +77,91 @@ airplay.on_client_connected = _on_connected
 airplay.on_client_disconnected = _on_disconnected
 
 
+def _normalize_config(data: dict | None = None):
+    data = data or {}
+    resolution = str(data.get("resolution", "1920x1080"))
+    if resolution not in ALLOWED_RESOLUTIONS:
+        resolution = "1920x1080"
+    try:
+        fps = int(data.get("fps", 60))
+    except (TypeError, ValueError):
+        fps = 60
+    if fps not in ALLOWED_FPS:
+        fps = 60
+    try:
+        sharpen = int(float(data.get("sharpen", 0)))
+    except (TypeError, ValueError):
+        sharpen = 0
+    sharpen = max(0, min(100, sharpen))
+    return {"resolution": resolution, "fps": fps, "sharpen": sharpen}
+
+
+def _web_uxplay_command(config: dict):
+    """Headless UxPlay command: AirPlay -> local RTP -> browser media hub."""
+    exe_path = airplay.find_executable()
+    if not exe_path:
+        raise FileNotFoundError("Không tìm thấy uxplay-windows.exe trong engine/bin")
+    resolution = config["resolution"]
+    fps = config["fps"]
+    return [
+        exe_path,
+        "-n", "CastScreen-PC",
+        "-fps", str(fps),
+        "-nohold",
+        "-reset", "3",
+        "-nofreeze",
+        "-s", f"{resolution}@{fps}",
+        "-vd", "d3d11h264dec",
+        "-vc", "d3d11convert",
+        "-vs", "0",
+        "-vsync", "no",
+        "-vrtp", "config-interval=1 ! udpsink host=127.0.0.1 port=5000 sync=false async=false",
+        "-artp", "udpsink host=127.0.0.1 port=5002 sync=false async=false",
+    ]
+
+
+# Replace the legacy arguments.txt-only command construction for the web receiver.
+airplay.build_command = _web_uxplay_command
+# Do not generate legacy renderer arguments that could reintroduce a visible UxPlay window.
+airplay.sync_appdata_config = lambda config: None
+
+
 def _touch_lease_locked():
     state["lease_active"] = True
     state["last_lease"] = time.time()
 
 
-def start_airplay():
+def start_airplay(config: dict | None = None):
+    cfg = _normalize_config(config)
     with state_lock:
         state["room_active"] = True
-        # Start the lease immediately. The Host room's /status polling keeps it alive.
+        state["resolution"] = cfg["resolution"]
+        state["fps"] = cfg["fps"]
+        state["sharpen"] = cfg["sharpen"]
         _touch_lease_locked()
 
     if airplay.is_running:
-        with state_lock:
-            state["running"] = True
-        return True
+        # Quality changes require a restart of the UxPlay process so its source mode changes apply.
+        try:
+            airplay.stop()
+        except Exception:
+            pass
 
-    config = {
+    try:
+        media.stop()
+        media.start()
+    except Exception as exc:
+        with state_lock:
+            state["last_error"] = f"Không thể khởi động media hub: {exc}"
+        return False
+
+    ok = airplay.start({
         "server_name": "CastScreen-PC",
-        "resolution": "1920x1080",
-        "fps": 60,
+        "resolution": cfg["resolution"],
+        "fps": cfg["fps"],
         "ultra_low_latency": True,
         "enable_audio": True,
-    }
-    ok = airplay.start(config)
+    })
     with state_lock:
         state["running"] = bool(ok)
         state["last_error"] = None if ok else "Không thể khởi động UxPlay/AirPlay"
@@ -99,14 +169,15 @@ def start_airplay():
             state["room_active"] = False
             state["lease_active"] = False
             state["last_lease"] = 0.0
+            media.stop()
     return ok
 
 
 def stop_airplay(clear_room=True):
     try:
-        # AirPlayServer.stop() tears down UxPlay AND the mDNS advertisement.
         airplay.stop()
     finally:
+        media.stop()
         with state_lock:
             state["running"] = False
             state["approved"] = False
@@ -160,14 +231,44 @@ def authorize(allow: bool):
             room_active = bool(state["room_active"])
         stop_airplay(clear_room=False)
         if room_active:
-            start_airplay()
+            start_airplay({"resolution": state["resolution"], "fps": state["fps"], "sharpen": state["sharpen"]})
         with state_lock:
             state["device"] = device
     return {"ok": True, "allowed": bool(allow)}
 
 
+def _stream_queue(handler, q, content_type):
+    handler.send_response(200)
+    handler._cors()
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Connection", "close")
+    handler.send_header("Transfer-Encoding", "chunked")
+    handler.end_headers()
+    try:
+        while True:
+            try:
+                packet = q.get(timeout=1.0)
+            except queue.Empty:
+                with state_lock:
+                    active = state["room_active"] and state["running"]
+                if not active:
+                    break
+                continue
+            if packet is None:
+                break
+            chunk_head = f"{len(packet):X}\r\n".encode("ascii")
+            handler.wfile.write(chunk_head)
+            handler.wfile.write(packet)
+            handler.wfile.write(b"\r\n")
+            handler.wfile.flush()
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        pass
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CastScreenAirPlayAgent/1.6"
+    server_version = "CastScreenAirPlayAgent/2.0"
+    protocol_version = "HTTP/1.1"
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -187,7 +288,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authorized(self):
         token = self.headers.get("X-CastScreen-Agent-Token", "")
-        return not token or secrets.compare_digest(token, agent_token)
+        return bool(token) and secrets.compare_digest(token, agent_token)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -199,9 +300,6 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/airplay/status":
             with state_lock:
-                # The Host room already polls /airplay/status. Treat that poll as
-                # the room heartbeat so closing the page automatically expires
-                # the AirPlay receiver without requiring page-unload reliability.
                 if state["room_active"]:
                     _touch_lease_locked()
                 payload = dict(state)
@@ -209,10 +307,29 @@ class Handler(BaseHTTPRequestHandler):
             payload["port"] = PORT
             payload["host"] = HOST
             payload["leaseTimeoutSeconds"] = LEASE_TIMEOUT_SECONDS
+            payload["media"] = media.stats()
             self._json(200, payload)
             return
         if parsed.path == "/health":
-            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.6"})
+            self._json(200, {"ok": True, "service": "airplay-agent", "version": "2.0", "media": media.stats()})
+            return
+        if parsed.path in ("/airplay/video", "/airplay/audio"):
+            if not self._authorized():
+                self._json(403, {"ok": False, "error": "forbidden"})
+                return
+            with state_lock:
+                active = bool(state["room_active"] and state["running"])
+            if not active:
+                self._json(409, {"ok": False, "error": "room-inactive"})
+                return
+            q = media.subscribe_video() if parsed.path.endswith("/video") else media.subscribe_audio()
+            try:
+                _stream_queue(self, q, "application/octet-stream")
+            finally:
+                if parsed.path.endswith("/video"):
+                    media.unsubscribe_video(q)
+                else:
+                    media.unsubscribe_audio(q)
             return
         self._json(404, {"ok": False, "error": "not-found"})
 
@@ -222,7 +339,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         if parsed.path == "/airplay/start":
-            self._json(200, {"ok": start_airplay()})
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            body = self.rfile.read(length) if length else b"{}"
+            try:
+                data = json.loads(body.decode("utf-8"))
+            except Exception:
+                data = {}
+            self._json(200, {"ok": start_airplay(data)})
             return
         if parsed.path == "/airplay/stop":
             self._json(200, revoke_lease())
@@ -249,11 +372,12 @@ def main():
     threading.Thread(target=_lease_watchdog, daemon=True).start()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print("=" * 64)
-    print("CAST SCREEN PRO — LOCAL AIRPLAY AGENT")
+    print("CAST SCREEN PRO — LOCAL AIRPLAY AGENT 2.0")
     print(f"Control API: http://{HOST}:{PORT}")
     print("AirPlay + mDNS: starts only while a Cast Screen Host room is active")
+    print("Headless RTP media: video=127.0.0.1:5000, audio=127.0.0.1:5002")
     print("Room heartbeat timeout: %ss" % LEASE_TIMEOUT_SECONDS)
-    print("When the room closes or the browser disappears, UxPlay and mDNS stop automatically.")
+    print("When the room closes or the browser disappears, UxPlay, RTP and mDNS stop automatically.")
     print("Packaged mode: no Python is required on the user's PC.")
     print("=" * 64)
     try:
