@@ -1,39 +1,990 @@
 <!doctype html>
 <html lang="vi">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050914">
-<title>Phòng — Cast Screen Pro</title>
-<style>
-:root{--bg:#050914;--card:#0b1220f5;--line:#ffffff1a;--muted:#94a3b8;--text:#f8fafc;--cyan:#22d3ee;--blue:#4f8cff;--green:#34d399;--red:#fb7185;--yellow:#fde68a}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(900px 480px at 50% -180px,#22d3ee22,transparent 68%),var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,sans-serif}.wrap{width:min(1180px,94vw);margin:auto}.top{height:72px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.brand{font-weight:950;font-size:21px}.brand span{color:var(--cyan)}.status{font-size:11px;font-weight:900;padding:8px 11px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}.status.ok{color:#a7f3d0;border-color:#34d39940}.status.bad{color:#fecdd3;border-color:#fb718540}.grid{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:16px;padding:20px 0 32px}.card{background:linear-gradient(180deg,#0f172af7,#080d19f7);border:1px solid var(--line);border-radius:20px;box-shadow:0 24px 80px #0006}.stage{aspect-ratio:16/9;min-height:320px;position:relative;overflow:hidden;border-radius:19px 19px 0 0;background:#02050a}.stage video{width:100%;height:100%;object-fit:contain;background:#02050a;display:block}.stage.fs{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;aspect-ratio:auto;min-height:0;border-radius:0;background:#000}.stage.fs video{width:100%;height:100%;object-fit:contain}.fs-exit{display:none;position:absolute;right:14px;top:14px;z-index:4;background:#000b;border:1px solid #fff3;color:#fff;padding:10px 12px;border-radius:11px;font-weight:900}.stage.fs .fs-exit{display:block}.hud{position:absolute;left:12px;top:12px;right:12px;display:flex;gap:7px;flex-wrap:wrap;z-index:3}.hud span{font:800 11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;color:#e2e8f0;background:#0009;border:1px solid #ffffff18;padding:7px 9px;border-radius:999px;backdrop-filter:blur(8px)}.empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:28px;color:var(--muted)}.controls{display:flex;flex-wrap:wrap;gap:9px;padding:13px;border-top:1px solid var(--line)}button{font:inherit;cursor:pointer;border:0;border-radius:12px;padding:11px 14px;font-weight:900}.primary{background:linear-gradient(135deg,var(--cyan),var(--blue));color:#031018}.ghost{background:#ffffff08;border:1px solid var(--line);color:var(--text)}.danger{background:#fb718514;border:1px solid #fb718533;color:#fecdd3}.side{padding:20px}.eyebrow{font-size:10px;letter-spacing:.12em;color:var(--cyan);font-weight:950}.title{font-size:24px;font-weight:950;margin:6px 0}.muted{font-size:12px;line-height:1.55;color:var(--muted)}.code{font-size:40px;letter-spacing:8px;font-weight:1000;text-align:center;margin:18px 0}.qr{width:max-content;background:#fff;padding:9px;border-radius:13px;margin:0 auto 14px}.share{display:flex;gap:8px}.share input{flex:1;min-width:0;padding:10px;border:1px solid var(--line);border-radius:10px;background:#070d18;color:#cbd5e1;font-size:11px}.air{margin-top:16px;padding:13px;border:1px solid #22d3ee22;background:#22d3ee08;border-radius:14px}.air-title{display:flex;align-items:center;gap:8px;font-weight:950;font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:#64748b}.dot.on{background:var(--green);box-shadow:0 0 12px #34d399aa}.air-text{margin-top:7px;color:var(--muted);font-size:11px;line-height:1.5}.install{display:none;margin-top:10px;padding:12px;border-radius:12px;background:#fbbf2408;border:1px solid #fbbf2430;color:var(--yellow);font-size:11px;line-height:1.5}.install.show{display:block}.install a{display:inline-block;margin-top:9px;padding:9px 11px;border-radius:10px;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#031018;text-decoration:none;font-weight:950}.info{display:grid;gap:9px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.row{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted)}.row strong{color:var(--text);text-align:right}.back{display:inline-block;margin-top:16px;color:var(--muted);text-decoration:none;font-size:12px}.modal{display:none;position:fixed;inset:0;z-index:2000;align-items:center;justify-content:center;padding:18px;background:#000b;backdrop-filter:blur(8px)}.modal.show{display:flex}.modal-card{width:min(460px,100%);padding:22px;border:1px solid var(--line);border-radius:22px;background:#0b1220;box-shadow:0 30px 100px #0008}.modal h2{margin:0 0 7px}.modal p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}.device{margin:14px 0;padding:12px;border:1px solid var(--line);border-radius:12px;font-weight:900}.steps{display:grid;gap:10px;margin:16px 0}.step{display:flex;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#ffffff06;font-size:12px;line-height:1.45}.num{width:24px;height:24px;min-width:24px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#031018;font-weight:950}.modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}.hint{margin-top:10px;color:#64748b;font-size:11px;line-height:1.45}@media(max-width:850px){.grid{grid-template-columns:1fr}.stage{min-height:220px}.controls button{flex:1 1 calc(50% - 9px)}.hud span{font-size:10px}}
-</style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#050914">
+    <title>Phòng — Cast Screen PRO</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        :root {
+            --bg: #050914;
+            --card: #0b1220f5;
+            --line: rgba(255, 255, 255, 0.1);
+            --muted: #94a3b8;
+            --text: #f8fafc;
+            --cyan: #22d3ee;
+            --blue: #4f8cff;
+            --green: #34d399;
+            --red: #fb7185;
+            --yellow: #fde68a;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: radial-gradient(900px 480px at 50% -180px, rgba(34, 211, 238, 0.14), transparent 68%), var(--bg);
+            color: var(--text);
+            font-family: Inter, system-ui, -apple-system, sans-serif;
+        }
+        .wrap { width: min(1180px, 94vw); margin: auto; }
+        .top {
+            height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--line);
+        }
+        .brand { font-size: 21px; font-weight: 950; text-decoration: none; color: var(--text); }
+        .brand span { color: var(--cyan); }
+        .status {
+            font-size: 11px;
+            font-weight: 900;
+            padding: 8px 14px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            color: var(--muted);
+            background: rgba(0, 0, 0, 0.3);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .status.ok { color: #a7f3d0; border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.1); }
+        .status.bad { color: #fecdd3; border-color: rgba(251, 113, 133, 0.4); background: rgba(251, 113, 133, 0.1); }
+
+        /* ================= HOST VIEW ================= */
+        .host-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 350px;
+            gap: 16px;
+            padding: 20px 0 32px;
+        }
+        .card {
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.97), rgba(8, 13, 25, 0.97));
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+        }
+        .stage {
+            aspect-ratio: 16/9;
+            min-height: 320px;
+            border-radius: 19px 19px 0 0;
+            overflow: hidden;
+            background: #02050a;
+            position: relative;
+        }
+        .stage video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: contain;
+            background: #02050a;
+        }
+        #airplayWebCanvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #02050a;
+            z-index: 2;
+        }
+        .stage.fs {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            width: 100vw;
+            height: 100vh;
+            min-height: 0;
+            border-radius: 0;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .stage.fs video, .stage.fs #airplayWebCanvas { width: 100%; height: 100%; object-fit: contain; }
+        .exitfs {
+            display: none;
+            position: absolute;
+            right: 14px;
+            top: 14px;
+            z-index: 4;
+            padding: 10px 14px;
+            border-radius: 11px;
+            background: rgba(0, 0, 0, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            font-weight: 900;
+            cursor: pointer;
+        }
+        .stage.fs .exitfs { display: block; }
+        .empty {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            text-align: center;
+            padding: 28px;
+            color: var(--muted);
+            z-index: 1;
+        }
+        .hud {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            display: flex;
+            gap: 7px;
+            flex-wrap: wrap;
+            z-index: 3;
+            pointer-events: none;
+        }
+        .hud span {
+            font: 800 10px/1 ui-monospace, Consolas, monospace;
+            padding: 7px 9px;
+            border-radius: 999px;
+            color: #e2e8f0;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 9px;
+            padding: 13px;
+            border-top: 1px solid var(--line);
+        }
+        button {
+            font: inherit;
+            cursor: pointer;
+            border: 0;
+            border-radius: 12px;
+            padding: 11px 16px;
+            font-weight: 900;
+            transition: all 0.15s ease;
+        }
+        button:hover { transform: translateY(-1px); }
+        .primary {
+            background: linear-gradient(135deg, var(--cyan), var(--blue));
+            color: #031018;
+        }
+        .ghost {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--line);
+            color: var(--text);
+        }
+        .danger {
+            background: rgba(251, 113, 133, 0.12);
+            border: 1px solid rgba(251, 113, 133, 0.3);
+            color: #fecdd3;
+        }
+        .danger:hover {
+            background: rgba(251, 113, 133, 0.2);
+        }
+        .side { padding: 20px; }
+        .eyebrow {
+            font-size: 10px;
+            font-weight: 950;
+            letter-spacing: 0.12em;
+            color: var(--cyan);
+        }
+        .title {
+            font-size: 22px;
+            font-weight: 950;
+            margin: 6px 0;
+        }
+        .muted {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.55;
+        }
+        .code {
+            font-size: 38px;
+            letter-spacing: 8px;
+            text-align: center;
+            font-weight: 1000;
+            margin: 16px 0;
+            color: var(--cyan);
+        }
+        .qr {
+            width: max-content;
+            margin: 0 auto 14px;
+            padding: 9px;
+            background: #fff;
+            border-radius: 13px;
+        }
+        .shareline { display: flex; gap: 8px; }
+        .shareline input {
+            flex: 1;
+            min-width: 0;
+            padding: 10px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #070d18;
+            color: #cbd5e1;
+            font-size: 11px;
+        }
+        .panel {
+            margin-top: 16px;
+            padding: 13px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .panel h3 { font-size: 12px; margin: 0 0 8px; }
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #64748b;
+            margin-right: 7px;
+        }
+        .dot.on {
+            background: var(--green);
+            box-shadow: 0 0 12px rgba(52, 211, 153, 0.6);
+        }
+        .install {
+            margin-top: 10px;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(251, 191, 36, 0.08);
+            border: 1px solid rgba(251, 191, 36, 0.25);
+            color: var(--yellow);
+            font-size: 11px;
+            line-height: 1.5;
+        }
+        .install a {
+            display: inline-block;
+            margin-top: 9px;
+            padding: 9px 12px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--cyan), var(--blue));
+            color: #031018;
+            text-decoration: none;
+            font-weight: 950;
+        }
+        .info {
+            display: grid;
+            gap: 9px;
+            margin-top: 18px;
+            padding-top: 16px;
+            border-top: 1px solid var(--line);
+        }
+        .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+        .row strong { color: var(--text); text-align: right; }
+        .back {
+            display: inline-block;
+            margin-top: 16px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 12px;
+        }
+
+        /* ================= JOIN / CLIENT VIEW (EXACT MATCH) ================= */
+        .join-wrapper {
+            min-height: calc(100vh - 110px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+        }
+        .join-container {
+            width: min(480px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .join-box {
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.97), rgba(8, 13, 25, 0.98));
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            padding: 48px 28px;
+            text-align: center;
+            box-shadow: 0 30px 90px rgba(0, 0, 0, 0.45);
+        }
+        .join-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            line-height: 1;
+            filter: drop-shadow(0 0 25px rgba(34, 211, 238, 0.3));
+        }
+        .join-title {
+            font-size: 26px;
+            font-weight: 950;
+            letter-spacing: -0.5px;
+            margin: 0 0 10px;
+            color: #ffffff;
+        }
+        .join-desc {
+            font-size: 14px;
+            color: var(--muted);
+            margin: 0;
+            line-height: 1.6;
+        }
+        .join-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+        }
+        .join-btn {
+            width: 100%;
+            padding: 15px 20px;
+            font-size: 15px;
+            font-weight: 900;
+            border-radius: 14px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .join-btn.primary {
+            background: linear-gradient(135deg, var(--cyan), var(--blue));
+            color: #031018;
+            box-shadow: 0 10px 30px rgba(34, 211, 238, 0.25);
+        }
+        .join-btn.primary.casting {
+            background: linear-gradient(135deg, #fb7185, #e11d48);
+            color: #ffffff;
+            box-shadow: 0 10px 30px rgba(251, 113, 133, 0.3);
+        }
+        .join-btn.danger {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--line);
+            color: var(--muted);
+        }
+        .join-btn.danger:hover {
+            color: #fecdd3;
+            border-color: rgba(251, 113, 133, 0.3);
+            background: rgba(251, 113, 133, 0.08);
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+        }
+        .modal.show { display: flex; }
+        .modal-card {
+            width: min(460px, 100%);
+            padding: 24px;
+            border-radius: 22px;
+            background: #0b1220;
+            border: 1px solid var(--line);
+            box-shadow: 0 30px 90px rgba(0,0,0,0.6);
+        }
+        .steps { display: grid; gap: 10px; margin: 18px 0; }
+        .step {
+            display: flex;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--line);
+            font-size: 13px;
+            line-height: 1.45;
+            align-items: center;
+        }
+        .num {
+            width: 26px;
+            height: 26px;
+            min-width: 26px;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--cyan), var(--blue));
+            color: #031018;
+            font-weight: 950;
+            font-size: 12px;
+        }
+
+        @media (max-width: 850px) {
+            .host-grid { grid-template-columns: 1fr; }
+            .stage { min-height: 220px; }
+            .controls button { flex: 1 1 calc(50% - 9px); }
+        }
+    </style>
 </head>
 <body>
-<header class="top wrap"><div class="brand">Cast Screen <span>PRO</span></div><div id="status" class="status">ĐANG KHỞI TẠO...</div></header>
-<main class="grid wrap"><section class="card"><div id="stage" class="stage"><video id="remoteVideo" autoplay playsinline></video><div id="empty" class="empty">Đang chờ thiết bị chia sẻ màn hình…</div><div class="hud"><span id="hudFps">FPS —</span><span id="hudPing">PING —</span><span id="hudBw">RX —</span><span id="hudLoss">LOSS —</span><span id="hudPath">LAN ?</span></div><button id="fsExit" class="fs-exit">✕ Thoát toàn màn hình</button></div><div class="controls"><button id="share" class="primary">📺 Chia sẻ màn hình</button><button id="unmute" class="ghost" disabled>🔊 Bật âm thanh</button><button id="fs" class="ghost">⛶ Toàn màn hình</button><button id="leave" class="danger">Thoát phòng</button></div></section>
-<aside class="card side"><div id="hostPanel"><div class="eyebrow">HOST</div><div class="title">Phòng của bạn</div><div class="muted">Bạn là chủ phòng. Hai thiết bị đều có thể chia sẻ màn hình.</div><div id="code" class="code">------</div><div id="qr" class="qr"></div><div class="share"><input id="link" readonly><button id="copy" class="primary">Copy</button></div></div><div id="clientPanel" style="display:none"><div class="eyebrow">CLIENT</div><div class="title">Đã vào phòng</div><div class="muted">Bạn là thiết bị thứ hai. Hai thiết bị đều có thể chia sẻ màn hình.</div></div>
-<div id="airPanel" class="air"><div class="air-title"><span id="airDot" class="dot"></span><span>AirPlay trên PC Host</span></div><div id="airText" class="air-text">Đang kiểm tra Agent…</div><div id="install" class="install"><b>Chưa cài Cast Screen AirPlay Agent</b><br>PC Host cần thành phần này để nhận AirPlay từ iPhone.<br><a href="download-agent.html">Cài / tải AirPlay Agent</a></div></div>
-<div class="info"><div class="row"><span>Phòng</span><strong id="roomInfo">—</strong></div><div class="row"><span>Thiết bị</span><strong id="deviceInfo">1 / 2</strong></div><div class="row"><span>Đường truyền</span><strong id="pathInfo">Đang kiểm tra</strong></div><div class="row"><span>FPS nhận</span><strong id="fpsInfo">—</strong></div><div class="row"><span>Ping</span><strong id="pingInfo">—</strong></div><div class="row"><span>Băng thông</span><strong id="bwInfo">—</strong></div><div class="row"><span>Packet loss</span><strong id="lossInfo">—</strong></div></div><a class="back" href="home.html">← Trang chủ</a></aside></main>
-<div id="modal" class="modal"><div class="modal-card"><h2 id="modalTitle"></h2><p id="modalIntro"></p><div id="device" class="device"></div><div id="steps" class="steps" style="display:none"><div class="step"><span class="num">1</span><div>Mở <b>Trung tâm điều khiển</b> trên iPhone.</div></div><div class="step"><span class="num">2</span><div>Nhấn <b>Phản chiếu màn hình / Screen Mirroring</b>.</div></div><div class="step"><span class="num">3</span><div>Chọn <b>CastScreen-PC</b>.</div></div><div class="step"><span class="num">4</span><div>Quay lại đây và chờ PC hỏi quyền nhận AirPlay.</div></div></div><div id="hint" class="hint"></div><div id="approval" class="modal-actions"><button id="deny" class="danger">Từ chối</button><button id="allow" class="primary">Cho phép</button></div><div id="guide" class="modal-actions" style="display:none"><button id="guideClose" class="ghost">Đóng</button></div></div></div>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script><script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script><script src="js/webrtc_manager.js?v=4.6"></script>
-<script>
-document.addEventListener('DOMContentLoaded',()=>{
- const $=id=>document.getElementById(id),q=new URLSearchParams(location.search),isCreate=q.has('create'),isHost=q.has('host')||isCreate,isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints>1);let code=(q.get('host')||q.get('room')||'').replace(/\D/g,'').slice(0,6);if(isCreate){code=String(Math.floor(100000+Math.random()*900000));const u=new URL(location.href);u.search='';u.searchParams.set('host',code);history.replaceState({},'',u)}if(!code){location.replace('home.html');return}
- const status=$('status'),stage=$('stage'),video=$('remoteVideo'),empty=$('empty'),share=$('share'),unmute=$('unmute'),fs=$('fs'),fsExit=$('fsExit');let manager=null,localShared=false,agentReady=false,agentToken='',leaseTimer=0,pollTimer=0,lastEvent=0;
- const setStatus=(t,ok=false,bad=false)=>{status.textContent=t;status.className='status'+(ok?' ok':'')+(bad?' bad':'')};
- const agentBases=['http://127.0.0.1:8765','http://localhost:8765'];async function agent(path,opts={}){for(const base of agentBases){try{const r=await fetch(base+path,{...opts,cache:'no-store'});if(r.ok)return await r.json()}catch(_){}}throw new Error('agent-offline')}
- const fullOn=()=>{stage.classList.add('fs');document.body.style.overflow='hidden'};const fullOff=()=>{stage.classList.remove('fs');document.body.style.overflow=''};fs.onclick=()=>stage.classList.contains('fs')?fullOff():fullOn();fsExit.onclick=fullOff;document.addEventListener('keydown',e=>{if(e.key==='Escape')fullOff()});
- function showGuide(){ $('modalTitle').textContent='📱 Chia sẻ màn hình iPhone';$('modalIntro').textContent='Chiếu iPhone vào PC Host bằng AirPlay. Không cần cài app trên iPhone.';$('device').style.display='none';$('steps').style.display='grid';$('approval').style.display='none';$('guide').style.display='grid';$('hint').textContent='iPhone và PC Host phải ở cùng mạng LAN/Wi‑Fi hoặc cùng hotspot.';$('modal').classList.add('show') }
- function showApproval(name){$('modalTitle').textContent='📱 iPhone muốn dùng AirPlay';$('modalIntro').textContent='Một thiết bị AirPlay vừa kết nối trực tiếp vào PC Host.';$('device').textContent=name||'iPhone / iPad';$('device').style.display='block';$('steps').style.display='none';$('approval').style.display='grid';$('guide').style.display='none';$('hint').textContent='Chỉ cho phép nếu đây là thiết bị bạn muốn nhận vào phòng.';$('modal').classList.add('show') }
- const hide=()=>{$('modal').classList.remove('show');$('device').style.display='block'};$('guideClose').onclick=hide;
- async function lease(){if(!isHost||!agentReady)return;try{await agent('/airplay/lease',{method:'POST',headers:{'X-CastScreen-Agent-Token':agentToken,'Content-Type':'application/json'},body:JSON.stringify({roomId:code})})}catch(_){}}
- async function poll(){if(!isHost||!agentReady)return;try{const s=await agent('/airplay/status');if(s.last_event!==lastEvent){lastEvent=s.last_event;if(s.pending_approval&&s.airplay_connected){$('airDot').className='dot on';$('airText').textContent=(s.device||'iPhone / iPad')+' đang chờ bạn cho phép.';showApproval(s.device)}else if(s.airplay_connected&&s.approved){$('airDot').className='dot on';$('airText').textContent=(s.device||'iPhone / iPad')+' đang phát AirPlay trực tiếp vào PC.'}else if(!s.airplay_connected){$('airDot').className='dot on';$('airText').textContent='AirPlay Receiver sẵn sàng trên LAN.'}}}catch(_){}pollTimer=setTimeout(poll,700)}
- async function setupAgent(){if(!isHost)return;try{const s=await agent('/airplay/status');agentReady=true;agentToken=s.token||'';$('airDot').className='dot on';$('airText').textContent='AirPlay Agent sẵn sàng.';$('install').classList.remove('show');await agent('/airplay/start',{method:'POST',headers:{'X-CastScreen-Agent-Token':agentToken}});clearInterval(leaseTimer);lease();leaseTimer=setInterval(lease,2000);poll()}catch(_){agentReady=false;$('airDot').className='dot';$('airText').textContent='Chưa kết nối được AirPlay Agent trên PC Host.';$('install').classList.add('show');setTimeout(setupAgent,3500)}}
- if(isHost){$('code').textContent=code;const u=new URL(location.href);u.search='';u.searchParams.set('room',code);$('link').value=u.href;new QRCode($('qr'),{text:$('link').value,width:180,height:180});$('copy').onclick=async()=>{try{await navigator.clipboard.writeText($('link').value);$('copy').textContent='Đã copy';setTimeout(()=>$('copy').textContent='Copy',1200)}catch(_){$('link').select();document.execCommand('copy')}};setupAgent()}else{$('hostPanel').style.display='none';$('clientPanel').style.display='block';$('airPanel').style.display='none'}
- $('allow').onclick=async()=>{try{await agent('/airplay/authorize',{method:'POST',headers:{'Content-Type':'application/json','X-CastScreen-Agent-Token':agentToken},body:JSON.stringify({allow:true})})}catch(_){}hide()};$('deny').onclick=async()=>{try{await agent('/airplay/authorize',{method:'POST',headers:{'Content-Type':'application/json','X-CastScreen-Agent-Token':agentToken},body:JSON.stringify({allow:false})})}catch(_){}hide()};
- manager=new WebRTCManager({role:isHost?'host':'client',isHost,roomId:code,onStream:s=>{video.srcObject=s;video.muted=true;video.play().catch(()=>{});empty.style.display='none';unmute.disabled=s.getAudioTracks().length===0},onStreamEnded:()=>{video.srcObject=null;empty.style.display='grid';unmute.disabled=true},onStatusChange:(c,l)=>{if(c==='CONNECTED'){setStatus(isHost?'ĐÃ KẾT NỐI':'ĐÃ VÀO PHÒNG',true);$('deviceInfo').textContent='2 / 2'}else if(['HOST_GONE','ROOM_NOT_FOUND','ROOM_FULL','DISCONNECTED'].includes(c)){setStatus(l||c,false,true);setTimeout(()=>location.replace('home.html'),900)}else setStatus(l||c)},onMetrics:m=>{const fps=Number(m.fps),rtt=Number.isFinite(m.rtt)?m.rtt:Number(m.ping),bw=Number.isFinite(m.bandwidthMbps)?m.bandwidthMbps:Number(m.mbps),loss=Number.isFinite(m.packetLossPct)?m.packetLossPct:Number(m.lossPct);if(Number.isFinite(fps)){$('fpsInfo').textContent=Math.round(fps)+' FPS';$('hudFps').textContent='FPS '+Math.round(fps)}if(Number.isFinite(rtt)){$('pingInfo').textContent=Math.round(rtt)+' ms';$('hudPing').textContent='PING '+Math.round(rtt)+' ms'}if(Number.isFinite(bw)){$('bwInfo').textContent=bw.toFixed(2)+' Mbps';$('hudBw').textContent='RX '+bw.toFixed(2)+' Mbps'}if(Number.isFinite(loss)){$('lossInfo').textContent=loss.toFixed(2)+'%';$('hudLoss').textContent='LOSS '+loss.toFixed(2)+'%'}$('pathInfo').textContent=m.lan?'LAN trực tiếp':(m.localCandidateType||m.remoteCandidateType||'Đang kiểm tra');$('hudPath').textContent=m.lan?'LAN':'NET'}});manager.connect();
- share.onclick=async()=>{if(isIOS){showGuide();return}if(!manager.hasPeer){setStatus('ĐANG CHỜ THIẾT BỊ THỨ HAI');return}if(localShared){manager.stopScreenCapture();localShared=false;share.textContent='📺 Chia sẻ màn hình';share.className='primary';return}try{const s=await navigator.mediaDevices.getDisplayMedia({video:{width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:60,max:60},cursor:'always'},audio:true});await manager.startScreenCapture(s);localShared=true;share.textContent='⏹ Dừng chia sẻ';share.className='danger';s.getVideoTracks()[0]?.addEventListener('ended',()=>{if(localShared)share.click()},{once:true})}catch(e){if(e.name!=='NotAllowedError')setStatus('Không thể chia sẻ màn hình',false,true)}};
- unmute.onclick=()=>{video.muted=false;video.volume=1;video.play().catch(()=>{});unmute.textContent='🔊 Đã bật âm thanh'};
- $('leave').onclick=()=>{try{manager.close()}catch(_){}clearInterval(leaseTimer);if(pollTimer)clearTimeout(pollTimer);if(isHost&&agentReady)agent('/airplay/stop',{method:'POST',headers:{'X-CastScreen-Agent-Token':agentToken}}).catch(()=>{});location.replace('home.html')};window.addEventListener('pagehide',()=>{try{manager?.close()}catch(_){}clearInterval(leaseTimer);if(pollTimer)clearTimeout(pollTimer);if(isHost&&agentReady)agent('/airplay/stop',{method:'POST',headers:{'X-CastScreen-Agent-Token':agentToken}}).catch(()=>{})});
-});
-</script>
-</body></html>
+    <header class="top wrap">
+        <a class="brand" href="home.html">Cast Screen <span>PRO</span></a>
+        <div id="status" class="status">ĐANG KHỞI TẠO...</div>
+    </header>
+
+    <!-- ================= 1. GIAO DIỆN HOST (MÁY NHẬN) ================= -->
+    <main id="hostView" class="host-grid wrap" style="display:none;">
+        <section class="card">
+            <div id="stage" class="stage">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="airplayWebCanvas" hidden></canvas>
+                <div id="empty" class="empty">Đang chờ màn hình…</div>
+                <div class="hud">
+                    <span id="fps">FPS —</span>
+                    <span id="ping">PING —</span>
+                    <span id="bw">RX —</span>
+                    <span id="loss">LOSS —</span>
+                    <span id="path">LAN ?</span>
+                </div>
+                <button id="exitfs" class="exitfs">✕ Thoát toàn màn hình</button>
+            </div>
+            <div class="controls">
+                <button id="unmute" class="ghost" disabled>🔊 Bật âm thanh</button>
+                <button id="fs" class="ghost">⛶ Toàn màn hình</button>
+                <button id="hostLeave" class="danger">Thoát phòng</button>
+            </div>
+        </section>
+
+        <aside class="card side">
+            <div id="hostBox">
+                <div class="eyebrow">HOST · MÁY NHẬN</div>
+                <div class="title">Phòng của bạn</div>
+                <div class="muted">Host chỉ nhận màn hình. Thiết bị Join hoặc AirPlay từ iPhone sẽ truyền thẳng vào đây.</div>
+                <div id="code" class="code">------</div>
+                <div id="qr" class="qr"></div>
+                <div class="shareline">
+                    <input id="link" readonly>
+                    <button id="copy" class="primary">Copy</button>
+                </div>
+            </div>
+
+            <div id="agentPanel" class="panel">
+                <h3><span id="agentDot" class="dot"></span>AirPlay Agent (PC Host)</h3>
+                <div id="agentText" class="muted">Đang kiểm tra Agent trên PC Host…</div>
+                <button id="checkAgentBtn" class="ghost" style="width:100%;margin-top:10px;">🔄 Kiểm tra Agent</button>
+                <div id="install" class="install" hidden>
+                    PC Host chưa có Agent. Cài một lần để tự động bật AirPlay khi có iPhone vào phòng.<br>
+                    <a href="https://github.com/thucteam1435/cast-screen-ios/releases/download/agent-latest/CastScreenAirPlayAgentSetup.exe" target="_blank" download>⬇ Cài Cast Screen Agent</a>
+                </div>
+            </div>
+
+            <div id="infoBox" class="info">
+                <div class="row"><span>Phòng</span><strong id="room">—</strong></div>
+                <div class="row"><span>Thiết bị</span><strong id="devices">1 / 2</strong></div>
+                <div class="row"><span>FPS nhận</span><strong id="fpsInfo">—</strong></div>
+                <div class="row"><span>Ping</span><strong id="pingInfo">—</strong></div>
+                <div class="row"><span>Băng thông</span><strong id="bwInfo">—</strong></div>
+                <div class="row"><span>Packet loss</span><strong id="lossInfo">—</strong></div>
+                <div class="row"><span>Đường truyền</span><strong id="pathInfo">—</strong></div>
+            </div>
+            <a class="back" href="home.html">← Trang chủ</a>
+        </aside>
+    </main>
+
+    <!-- ================= 2. GIAO DIỆN JOIN (MÁY PHÁT - ĐÚNG CHUẨN YÊU CẦU) ================= -->
+    <main id="joinView" class="join-wrapper" style="display:none;">
+        <div class="join-container">
+            <section class="join-box">
+                <div class="join-icon">📺</div>
+                <h1 class="join-title">Sẵn sàng chia sẻ</h1>
+                <p class="join-desc">Thiết bị này chỉ phát màn hình tới Host.</p>
+            </section>
+
+            <div class="join-actions">
+                <button id="joinShareBtn" class="primary join-btn">
+                    <span>📺</span>
+                    <span id="joinShareLabel">Chia sẻ màn hình</span>
+                </button>
+                <button id="joinLeaveBtn" class="danger join-btn">Thoát phòng</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- AirPlay Guide Modal for iOS -->
+    <div id="modal" class="modal">
+        <div class="modal-card">
+            <h2>📱 Chia sẻ màn hình iPhone</h2>
+            <p class="muted">Dùng tính năng AirPlay tích hợp sẵn của iOS để chiếu vào PC Host:</p>
+            <div class="steps">
+                <div class="step">
+                    <span class="num">1</span>
+                    <div>Vuốt góc trên bên phải để mở <b>Trung tâm điều khiển</b>.</div>
+                </div>
+                <div class="step">
+                    <span class="num">2</span>
+                    <div>Chạm vào biểu tượng <b>Phản chiếu màn hình (Screen Mirroring)</b>.</div>
+                </div>
+                <div class="step">
+                    <span class="num">3</span>
+                    <div>Chọn thiết bị <b>CastScreen-PC</b>.</div>
+                </div>
+            </div>
+            <div class="muted" style="margin-bottom:16px;">iPhone và PC Host cần kết nối chung mạng Wi‑Fi hoặc Hotspot.</div>
+            <button id="closeGuide" class="ghost" style="width:100%;">Đóng</button>
+        </div>
+    </div>
+
+    <!-- Core Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="js/webrtc_manager.js?v=6.6"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const q = new URLSearchParams(location.search);
+        const isCreate = q.has('create');
+        const isHost = q.has('host') || isCreate;
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+        
+        let code = (q.get('host') || q.get('room') || '').replace(/\D/g, '').slice(0, 6);
+        if (isCreate || (!code && isHost)) {
+            code = String(Math.floor(100000 + Math.random() * 900000));
+            const u = new URL(location.href);
+            u.search = '';
+            u.searchParams.set('host', code);
+            history.replaceState({}, '', u);
+        }
+        if (!code) {
+            location.replace('home.html');
+            return;
+        }
+
+        const hostView = document.getElementById('hostView');
+        const joinView = document.getElementById('joinView');
+        const status = document.getElementById('status');
+        const video = document.getElementById('video');
+        const empty = document.getElementById('empty');
+        const stage = document.getElementById('stage');
+        const canvas = document.getElementById('airplayWebCanvas');
+        const unmute = document.getElementById('unmute');
+        const joinShareBtn = document.getElementById('joinShareBtn');
+        const joinShareLabel = document.getElementById('joinShareLabel');
+        const joinLeaveBtn = document.getElementById('joinLeaveBtn');
+        const hostLeave = document.getElementById('hostLeave');
+        const checkAgentBtn = document.getElementById('checkAgentBtn');
+
+        let manager = null;
+        let localStream = null;
+        let agentReady = false;
+        let agentToken = '';
+        let iosPresent = false;
+        let lastIOSHeartbeat = 0;
+        let platformSocket = null;
+        let platformTimer = null;
+        let airplayDecoder = null;
+        let airplayReader = null;
+        let airplayStarted = false;
+        let agentPollTimer = null;
+        let httpPollTimer = null;
+
+        function setStatus(t, ok = false, bad = false) {
+            status.textContent = t;
+            status.className = 'status' + (ok ? ' ok' : '') + (bad ? ' bad' : '');
+        }
+
+        // ================= AGENT API =================
+        const agentBases = ['http://127.0.0.1:8765', 'http://localhost:8765'];
+        async function agent(path, opts = {}) {
+            let headers = { ...(opts.headers || {}) };
+            if (agentToken && !headers['X-CastScreen-Agent-Token']) {
+                headers['X-CastScreen-Agent-Token'] = agentToken;
+            }
+            for (const base of agentBases) {
+                try {
+                    let r = await fetch(base + path, { ...opts, headers, cache: 'no-store' });
+                    if (r.status === 403 && path !== '/airplay/status') {
+                        const stRes = await fetch(base + '/airplay/status', { cache: 'no-store' });
+                        if (stRes.ok) {
+                            const stData = await stRes.json();
+                            agentToken = stData.token || '';
+                            headers['X-CastScreen-Agent-Token'] = agentToken;
+                            r = await fetch(base + path, { ...opts, headers, cache: 'no-store' });
+                        }
+                    }
+                    if (r.ok) return await r.json();
+                } catch (_) {}
+            }
+            throw new Error('agent-offline');
+        }
+
+        async function checkAgentStatus() {
+            if (!isHost) return;
+            const dot = document.getElementById('agentDot');
+            const text = document.getElementById('agentText');
+            const install = document.getElementById('install');
+            try {
+                const s = await agent('/health');
+                agentReady = !!s.ok;
+                if (!agentReady) throw 0;
+                const st = await agent('/airplay/status');
+                agentToken = st.token || '';
+                if (dot) dot.className = 'dot on';
+                if (text) text.textContent = iosPresent 
+                    ? '🟢 Agent đang chạy · 🟢 iPhone đã vào phòng · AirPlay đang bật' 
+                    : '🟢 Agent đang chạy · Chờ iPhone vào phòng';
+                if (install) install.hidden = true;
+            } catch (_) {
+                agentReady = false;
+                if (dot) dot.className = 'dot';
+                if (text) text.textContent = '🔴 Chưa kết nối Agent trên PC Host';
+                if (install) install.hidden = false;
+            }
+        }
+
+        if (checkAgentBtn) {
+            checkAgentBtn.onclick = () => checkAgentStatus();
+        }
+
+        // ================= AIRPLAY WEBCODECS VIDEO DECODER (PC HOST) =================
+        async function startAirPlayWebVideo() {
+            if (!isHost || airplayStarted || !iosPresent) return;
+            airplayStarted = true;
+            const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+            
+            try {
+                if (typeof VideoDecoder === 'undefined') throw new Error('WebCodecs not supported');
+                const res = await fetch('http://127.0.0.1:8765/airplay/video', {
+                    cache: 'no-store',
+                    headers: { 'X-CastScreen-Agent-Token': agentToken }
+                });
+                if (!res.ok || !res.body) throw new Error('airplay-stream-unavailable');
+
+                airplayReader = res.body.getReader();
+                airplayDecoder = new VideoDecoder({
+                    output: frame => {
+                        canvas.width = frame.displayWidth;
+                        canvas.height = frame.displayHeight;
+                        ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+                        frame.close();
+                        canvas.hidden = false;
+                        if (video) video.hidden = true;
+                        if (empty) empty.style.display = 'none';
+                    },
+                    error: e => console.warn('[AirPlay Decode Error]', e)
+                });
+                airplayDecoder.configure({ codec: 'avc1.640028', optimizeForLatency: true });
+
+                let buf = new Uint8Array(0);
+                while (airplayReader) {
+                    const { value, done } = await airplayReader.read();
+                    if (done) break;
+                    if (!value) continue;
+                    const next = new Uint8Array(buf.length + value.length);
+                    next.set(buf);
+                    next.set(value, buf.length);
+                    buf = next;
+                    while (buf.length >= 13) {
+                        const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+                        const len = dv.getUint32(0);
+                        if (len < 9 || buf.length < 4 + len) break;
+                        const pts = Number(dv.getBigUint64(4));
+                        const key = !!buf[12];
+                        const payload = buf.slice(13, 4 + len);
+                        try {
+                            airplayDecoder.decode(new EncodedVideoChunk({
+                                type: key ? 'key' : 'delta',
+                                timestamp: pts,
+                                data: payload
+                            }));
+                        } catch (err) {
+                            console.warn('[Chunk decode error]', err);
+                        }
+                        buf = buf.slice(4 + len);
+                    }
+                }
+            } catch (err) {
+                console.warn('[AirPlay Video Stream Error]', err);
+            } finally {
+                airplayStarted = false;
+                airplayReader = null;
+                try { airplayDecoder && airplayDecoder.close(); } catch (_) {}
+                airplayDecoder = null;
+            }
+        }
+
+        async function startAirPlayOnAgent() {
+            if (!isHost || !agentReady || !iosPresent) return;
+            try {
+                if (!agentToken) {
+                    const st = await agent('/airplay/status');
+                    agentToken = st.token || '';
+                }
+                await agent('/airplay/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CastScreen-Agent-Token': agentToken,
+                        'X-CastScreen-iOS-Confirmed': 'true'
+                    },
+                    body: JSON.stringify({ roomId: code, resolution: '1920x1080', fps: 60, sharpen: 0 })
+                });
+                checkAgentStatus();
+                startAirPlayWebVideo();
+            } catch (e) {
+                console.warn('[Start AirPlay on Agent Error]', e);
+            }
+        }
+
+        async function stopAirPlayOnAgent() {
+            if (!isHost || !agentReady) return;
+            try {
+                await agent('/airplay/stop', {
+                    method: 'POST',
+                    headers: agentToken ? { 'X-CastScreen-Agent-Token': agentToken } : {}
+                });
+            } catch (_) {}
+            if (canvas) canvas.hidden = true;
+            if (video) video.hidden = false;
+            checkAgentStatus();
+        }
+
+        // ================= DUAL SIGNALING (WebSocket Cloudflare + HTTP Local Server) =================
+        function handlePlatformSignal(d) {
+            if (!isHost || !d || d.type !== 'client-platform') return;
+            const platform = String(d.platform || '').toLowerCase();
+            lastIOSHeartbeat = Date.now();
+            const next = platform === 'ios';
+            if (next !== iosPresent) {
+                iosPresent = next;
+                if (iosPresent) startAirPlayOnAgent();
+                else stopAirPlayOnAgent();
+            }
+        }
+
+        function connectPlatformSignaling() {
+            // 1. Try WebSocket (Works on Cloudflare)
+            try {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const role = isHost ? 'host' : 'client';
+                const ws = new WebSocket(`${proto}//${location.host}/ws?room=${encodeURIComponent(code)}&role=${role}`);
+                platformSocket = ws;
+
+                ws.addEventListener('open', () => {
+                    if (!isHost) sendPlatformHeartbeat();
+                });
+                ws.addEventListener('message', e => {
+                    let d;
+                    try { d = JSON.parse(e.data); } catch (_) { return; }
+                    handlePlatformSignal(d);
+                });
+                ws.addEventListener('close', () => { platformSocket = null; });
+                ws.addEventListener('error', () => { platformSocket = null; });
+            } catch (_) {}
+
+            // 2. HTTP Long-Poll Signaling (Works on Local Python Server and Cloudflare)
+            if (isHost) {
+                let since = 0;
+                const pollHttp = async () => {
+                    try {
+                        const r = await fetch(`/signal/poll?room=${encodeURIComponent(code)}&role=host&since=${since}`);
+                        if (r.ok) {
+                            const list = await r.json();
+                            for (const item of list) {
+                                if (item.ts > since) since = item.ts;
+                                handlePlatformSignal(item.data || item);
+                            }
+                        }
+                    } catch (_) {}
+                };
+                httpPollTimer = setInterval(pollHttp, 1500);
+                pollHttp();
+            }
+        }
+
+        function sendPlatformHeartbeat() {
+            if (isHost) return;
+            const platform = isIOS ? 'ios' : 'other';
+            const msg = { type: 'client-platform', platform, roomId: code, t: Date.now() };
+            if (platformSocket && platformSocket.readyState === WebSocket.OPEN) {
+                try { platformSocket.send(JSON.stringify(msg)); } catch (_) {}
+            }
+            fetch('/signal/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomId: code, from: 'client', ...msg })
+            }).catch(() => {});
+        }
+
+        function installHostIOSWatchdog() {
+            if (!isHost) return;
+            setInterval(() => {
+                if (iosPresent && lastIOSHeartbeat && Date.now() - lastIOSHeartbeat > 6500) {
+                    iosPresent = false;
+                    stopAirPlayOnAgent();
+                }
+            }, 1500);
+        }
+
+        // ================= SWITCH VIEW BASED ON ROLE =================
+        if (isHost) {
+            hostView.style.display = 'grid';
+            joinView.style.display = 'none';
+
+            document.getElementById('code').textContent = code;
+            document.getElementById('room').textContent = code;
+
+            const u = new URL(location.href);
+            u.search = '';
+            u.searchParams.set('room', code);
+            document.getElementById('link').value = u.href;
+            new QRCode(document.getElementById('qr'), { text: u.href, width: 180, height: 180 });
+
+            document.getElementById('copy').onclick = async () => {
+                try {
+                    await navigator.clipboard.writeText(u.href);
+                    document.getElementById('copy').textContent = 'Đã copy';
+                    setTimeout(() => document.getElementById('copy').textContent = 'Copy', 1200);
+                } catch (_) {}
+            };
+
+            checkAgentStatus();
+            installHostIOSWatchdog();
+            agentPollTimer = setInterval(() => {
+                checkAgentStatus();
+                if (iosPresent && !airplayStarted) startAirPlayWebVideo();
+            }, 4000);
+        } else {
+            hostView.style.display = 'none';
+            joinView.style.display = 'flex';
+            clearInterval(platformTimer);
+            platformTimer = setInterval(sendPlatformHeartbeat, 2000);
+            sendPlatformHeartbeat();
+        }
+
+        connectPlatformSignaling();
+
+        // ================= WEBRTC MANAGER INITIALIZATION =================
+        manager = new WebRTCManager({
+            role: isHost ? 'host' : 'client',
+            roomId: code,
+            onStream: (s) => {
+                if (video && isHost) {
+                    video.srcObject = s;
+                    video.muted = true;
+                    video.play().catch(() => {});
+                    if (empty) empty.style.display = 'none';
+                    if (unmute) unmute.disabled = !s.getAudioTracks().length;
+                }
+            },
+            onStreamEnded: () => {
+                if (video && isHost) {
+                    video.srcObject = null;
+                    if (empty) empty.style.display = 'grid';
+                    if (unmute) unmute.disabled = true;
+                }
+            },
+            onStatusChange: (c, l) => {
+                if (c === 'CONNECTED') {
+                    setStatus(isHost ? 'ĐÃ KẾT NỐI' : 'ĐÃ VÀO PHÒNG', true);
+                    const dev = document.getElementById('devices');
+                    if (dev) dev.textContent = '2 / 2';
+                } else if (['HOST_GONE', 'ROOM_NOT_FOUND', 'ROOM_FULL'].includes(c)) {
+                    setStatus(l || c, false, true);
+                    setTimeout(() => location.replace('home.html'), 1000);
+                } else {
+                    setStatus(l || c);
+                }
+            },
+            onMetrics: (m) => {
+                const f = Number(m.fps), r = Number.isFinite(m.rtt) ? m.rtt : Number(m.ping), b = Number(m.bitrateMbps || m.bandwidthMbps || m.mbps), l = Number(m.lossPct || m.packetLossPct);
+                if (Number.isFinite(f)) { const e = document.getElementById('fpsInfo'); if (e) e.textContent = Math.round(f) + ' FPS'; const h = document.getElementById('fps'); if (h) h.textContent = 'FPS ' + Math.round(f); }
+                if (Number.isFinite(r)) { const e = document.getElementById('pingInfo'); if (e) e.textContent = Math.round(r) + ' ms'; const h = document.getElementById('ping'); if (h) h.textContent = 'PING ' + Math.round(r) + ' ms'; }
+                if (Number.isFinite(b)) { const e = document.getElementById('bwInfo'); if (e) e.textContent = b.toFixed(2) + ' Mbps'; const h = document.getElementById('bw'); if (h) h.textContent = 'RX ' + b.toFixed(2) + ' Mbps'; }
+                if (Number.isFinite(l)) { const e = document.getElementById('lossInfo'); if (e) e.textContent = l.toFixed(2) + '%'; const h = document.getElementById('loss'); if (h) h.textContent = 'LOSS ' + l.toFixed(2) + '%'; }
+                const pathEl = document.getElementById('pathInfo'); if (pathEl) pathEl.textContent = m.lan ? 'LAN trực tiếp' : (m.localCandidateType || m.remoteCandidateType || 'Đang kiểm tra');
+                const pathH = document.getElementById('path'); if (pathH) pathH.textContent = m.lan ? 'LAN' : 'NET';
+            }
+        });
+        manager.connect();
+
+        // ================= JOIN SHARING HANDLER =================
+        async function stopSharing() {
+            if (localStream) {
+                localStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+                localStream = null;
+            }
+            if (manager) manager.stopScreenCapture();
+            if (joinShareLabel) joinShareLabel.textContent = 'Chia sẻ màn hình';
+            if (joinShareBtn) joinShareBtn.classList.remove('casting');
+            setStatus('ĐÃ VÀO PHÒNG', true);
+        }
+
+        if (joinShareBtn) {
+            joinShareBtn.onclick = async () => {
+                if (isIOS) {
+                    document.getElementById('modal').classList.add('show');
+                    return;
+                }
+                if (localStream) {
+                    await stopSharing();
+                    return;
+                }
+                try {
+                    const s = await navigator.mediaDevices.getDisplayMedia({
+                        video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 }, cursor: 'always' },
+                        audio: true
+                    });
+                    localStream = s;
+                    await manager.startScreenCapture(s);
+                    if (joinShareLabel) joinShareLabel.textContent = 'Dừng chia sẻ màn hình';
+                    if (joinShareBtn) joinShareBtn.classList.add('casting');
+                    setStatus('ĐANG PHÁT MÀN HÌNH (60 FPS)', true);
+                    s.getVideoTracks()[0]?.addEventListener('ended', () => stopSharing(), { once: true });
+                } catch (err) {
+                    if (err.name !== 'NotAllowedError') setStatus('Không thể chia sẻ màn hình', false, true);
+                }
+            };
+        }
+
+        // Modal Close
+        const closeGuide = document.getElementById('closeGuide');
+        if (closeGuide) closeGuide.onclick = () => document.getElementById('modal').classList.remove('show');
+
+        // Unmute & Fullscreen for Host
+        if (unmute) {
+            unmute.onclick = () => {
+                video.muted = false;
+                video.volume = 1;
+                video.play().catch(() => {});
+                unmute.textContent = '🔊 Đã bật âm thanh';
+            };
+        }
+
+        const fullOn = () => { stage.classList.add('fs'); document.body.style.overflow = 'hidden'; };
+        const fullOff = () => { stage.classList.remove('fs'); document.body.style.overflow = ''; };
+        const fsBtn = document.getElementById('fs');
+        if (fsBtn) fsBtn.onclick = () => stage.classList.contains('fs') ? fullOff() : fullOn();
+        const exitfs = document.getElementById('exitfs');
+        if (exitfs) exitfs.onclick = fullOff;
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') fullOff(); });
+
+        // Leave room
+        const leaveHandler = async () => {
+            if (isHost) {
+                await stopAirPlayOnAgent();
+                if (agentPollTimer) clearInterval(agentPollTimer);
+                if (httpPollTimer) clearInterval(httpPollTimer);
+            } else {
+                await stopSharing();
+            }
+            if (platformSocket) { try { platformSocket.close(); } catch (_) {} }
+            if (platformTimer) clearInterval(platformTimer);
+            try { manager.close(); } catch (_) {}
+            location.replace('home.html');
+        };
+        if (hostLeave) hostLeave.onclick = leaveHandler;
+        if (joinLeaveBtn) joinLeaveBtn.onclick = leaveHandler;
+        window.addEventListener('pagehide', () => {
+            try { manager.close(); } catch (_) {}
+            if (localStream) localStream.getTracks().forEach(t => t.stop());
+            if (isHost && agentReady) {
+                navigator.sendBeacon('http://127.0.0.1:8765/airplay/stop', '');
+            }
+        });
+    });
+    </script>
+</body>
+</html>
