@@ -19,6 +19,7 @@ class WebRTCManager {
         this.lastHeartbeat = 0; this.closed = false; this.clientConnected = false; this.roomReady = false;
         this.statsPrev = new Map(); this.agentToken = '';
         this.rtcConfig = { iceServers: [], iceCandidatePoolSize: 0, sdpSemantics: 'unified-plan' };
+        this._installRoomEnhancements();
     }
     get hostPeerId() { return `castscreen-room-${this.roomId}-host`; }
     get hasPeer() { return !!(this.control?.open && this.remotePeerId); }
@@ -34,28 +35,25 @@ class WebRTCManager {
         if (!this.isHost || this.agentLeaseTimer) return;
         const bases=['http://127.0.0.1:8765','http://localhost:8765'];
         const call=async(path,opts={})=>{for(const b of bases){try{const r=await fetch(b+path,{...opts,cache:'no-store'});if(r.ok)return await r.json();}catch(_){}}return null;};
-        const status=await call('/airplay/status');
-        if(!status) return;
+        const status=await call('/airplay/status'); if(!status)return;
         this.agentToken=status.token||'';
-        const lease=async()=>{ if(this.closed){this._stopAgentLease();return;} const r=await call('/airplay/lease',{method:'POST',headers:{'X-CastScreen-Agent-Token':this.agentToken}}); if(!r){this._stopAgentLease();} };
-        lease();
-        this.agentLeaseTimer=setInterval(lease,2000);
+        const lease=async()=>{if(this.closed){this._stopAgentLease();return;}const r=await call('/airplay/lease',{method:'POST',headers:{'X-CastScreen-Agent-Token':this.agentToken}});if(!r)this._stopAgentLease();};
+        lease(); this.agentLeaseTimer=setInterval(lease,2000);
     }
-    _stopAgentLease() {
+    _stopAgentLease(){
         if(this.agentLeaseTimer){clearInterval(this.agentLeaseTimer);this.agentLeaseTimer=null;}
         if(!this.isHost)return;
-        const token=this.agentToken;
-        const bases=['http://127.0.0.1:8765','http://localhost:8765'];
-        for(const b of bases){try{fetch(b+'/airplay/stop',{method:'POST',headers:{'X-CastScreen-Agent-Token':token},keepalive:true}).catch(()=>{});}catch(_) {}}
+        const token=this.agentToken; const bases=['http://127.0.0.1:8765','http://localhost:8765'];
+        for(const b of bases){try{fetch(b+'/airplay/stop',{method:'POST',headers:{'X-CastScreen-Agent-Token':token},keepalive:true}).catch(()=>{});}catch(_){}}
     }
-    _createHostPeer() {
+    _createHostPeer(){
         this._destroyPeerOnly(); const peer=new Peer(this.hostPeerId,{config:this.rtcConfig,debug:0}); this.peer=peer; this.peerId=this.hostPeerId;
         peer.on('open',id=>{if(this.closed)return;this.peerId=id||this.hostPeerId;this.roomReady=true;this._setStatus('WAITING','Phòng đã sẵn sàng — đang chờ thiết bị thứ hai');});
         peer.on('connection',c=>this._acceptClient(c)); peer.on('call',c=>this._handleIncomingCall(c));
         peer.on('error',e=>{if(this.closed)return;console.warn('[CastScreen][Host]',e?.type||e);this._setStatus('FAILED',e?.type==='unavailable-id'?'Mã phòng đang được sử dụng':'Không thể tạo phòng');});
         peer.on('disconnected',()=>{if(!this.closed)this._setStatus('FAILED','Mất kết nối dịch vụ điều phối');});
     }
-    _createClientPeer() {
+    _createClientPeer(){
         this._destroyPeerOnly(); const id=`castscreen-client-${Math.random().toString(36).slice(2,11)}`; const peer=new Peer(id,{config:this.rtcConfig,debug:0}); this.peer=peer; this.peerId=id;
         peer.on('open',()=>this._connectToHost()); peer.on('call',c=>this._handleIncomingCall(c));
         peer.on('error',e=>{if(this.closed)return;console.warn('[CastScreen][Client]',e?.type||e);this._setStatus(e?.type==='peer-unavailable'||e?.type==='unavailable-id'?'ROOM_NOT_FOUND':'FAILED',e?.type==='peer-unavailable'||e?.type==='unavailable-id'?'Phòng không tồn tại hoặc đã đóng':'Không thể tham gia phòng');});
@@ -77,7 +75,7 @@ class WebRTCManager {
     }
     _handleIncomingCall(call){if(this.closed){try{call.close();}catch(_){}return;}this.remotePeerId=call.peer;this.incomingCalls.add(call);try{call.answer(this.localStream||undefined);}catch(_){try{call.answer();}catch(__){}}call.on('stream',s=>{this.remoteStreams.set(call,s);if(this.onStream)this.onStream(s,s.getVideoTracks()[0]||null);this._startStats();});const cleanup=()=>{this.incomingCalls.delete(call);this.remoteStreams.delete(call);if(this.onStreamEnded)this.onStreamEnded();};call.on('close',cleanup);call.on('error',cleanup);}
     async startScreenCapture(stream){if(!stream)throw new Error('Không có luồng màn hình');this.stopScreenCapture(false);this.localStream=stream;for(const t of stream.getTracks()){if(t.kind==='video')t.contentHint='motion';t.addEventListener('ended',()=>{if(this.localStream===stream)this.stopScreenCapture(true);},{once:true});}if(!this.hasPeer){this._setStatus('WAITING','Đang chờ thiết bị thứ hai…');return;}this._makeOutgoingCall();}
-    stopScreenCapture(updateStatus=true){if(this.localStream){for(const t of this.localStream.getTracks()){try{t.stop();}catch(_){}}this.localStream=null;}if(this.outgoingCall){try{this.outgoingCall.close();}catch(_){}this.outgoingCall=null;}if(updateStatus&&this.hasPeer)this._setStatus('CONNECTED','Đã kết nối thiết bị thứ hai');}
+    stopScreenCapture(updateStatus=true){if(this.localStream){for(const t of this.localStream.getTracks()){try{t.stop();}catch(_){} }this.localStream=null;}if(this.outgoingCall){try{this.outgoingCall.close();}catch(_){}this.outgoingCall=null;}if(updateStatus&&this.hasPeer)this._setStatus('CONNECTED','Đã kết nối thiết bị thứ hai');}
     _maybeSendLocalStream(){if(this.localStream&&this.hasPeer)this._makeOutgoingCall();}
     _makeOutgoingCall(){if(!this.localStream||!this.remotePeerId||!this.peer||this.peer.destroyed||this.closed)return;if(this.outgoingCall){try{this.outgoingCall.close();}catch(_){}this.outgoingCall=null;}try{const call=this.peer.call(this.remotePeerId,this.localStream,{metadata:{roomId:this.roomId,lanOnly:true}});this.outgoingCall=call;call.on('stream',s=>{this.remoteStreams.set(call,s);if(this.onStream)this.onStream(s,s.getVideoTracks()[0]||null);this._startStats();});const cleanup=()=>{if(this.outgoingCall===call)this.outgoingCall=null;};call.on('close',cleanup);call.on('error',cleanup);}catch(e){console.warn('[CastScreen] outgoing call failed',e);}}
     _startHeartbeat(){clearInterval(this.heartbeatTimer);this.heartbeatTimer=setInterval(()=>{if(!this.isHost||!this.control?.open||this.closed)return;try{this.control.send({type:'host-heartbeat',t:Date.now()});}catch(_){}},2000);}
@@ -93,24 +91,22 @@ class WebRTCManager {
                 if(r.type==='candidate-pair'&&r.state==='succeeded'){if(Number.isFinite(r.currentRoundTripTime))rtt=Math.max(rtt,r.currentRoundTripTime*1000);if(r.localCandidateId){const c=stats.get(r.localCandidateId);if(c?.candidateType)localType=c.candidateType;}if(r.remoteCandidateId){const c=stats.get(r.remoteCandidateId);if(c?.candidateType)remoteType=c.candidateType;}}
             });}
             const metrics={fps:Math.round(fps||0),rtt:Math.round(rtt||0),ping:Math.round(rtt||0),bandwidthBps:Math.round(bitrateBps||0),bandwidthMbps:Number((bitrateBps/1e6).toFixed(2)),packetLoss:packetsReceived+packetsLost>0?Number((packetsLost/(packetsReceived+packetsLost)*100).toFixed(2)):0,pipelineMs:Math.round(Math.max(0,rtt+jitter+decode)),localCandidateType:localType,remoteCandidateType:remoteType,lan:localType==='host'&&remoteType==='host'};
-            if(this.onMetrics)this.onMetrics(metrics); this._renderTelemetry(metrics);
+            if(this.onMetrics)this.onMetrics(metrics);this._renderTelemetry(metrics);
         }catch(_){}},500);
     }
     _renderTelemetry(m){if(!document||!document.body)return;let hud=document.getElementById('castTelemetry');if(!hud){hud=document.createElement('div');hud.id='castTelemetry';hud.innerHTML='<span>FPS <b id="csFps">—</b></span><span>Ping <b id="csPing">—</b></span><span>Rx <b id="csBw">—</b></span><span>Loss <b id="csLoss">—</b></span><span id="csPath">LAN</span>';Object.assign(hud.style,{position:'fixed',left:'14px',top:'84px',zIndex:9997,display:'flex',gap:'8px',padding:'8px 10px',borderRadius:'10px',background:'rgba(3,8,18,.78)',backdropFilter:'blur(8px)',border:'1px solid rgba(255,255,255,.12)',color:'#cbd5e1',font:'700 11px/1.2 system-ui',pointerEvents:'none'});document.body.appendChild(hud);}const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};set('csFps',m.fps?m.fps+' FPS':'—');set('csPing',Number.isFinite(m.rtt)?m.rtt+' ms':'—');set('csBw',m.bandwidthMbps?m.bandwidthMbps.toFixed(2)+' Mbps':'—');set('csLoss',m.packetLoss+'%');set('csPath',m.lan?'LAN':'ICE');}
     _installRoomEnhancements(){
+        if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',()=>this._installRoomEnhancements(),{once:true});return;}
         const isIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
-        const share=document.getElementById('share');
-        const video=document.getElementById('remoteVideo');
-        if(isIOS&&share){share.textContent='📱 Hướng dẫn AirPlay';share.dataset.airplayGuide='1';share.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();this._showAirplayGuide();},true);}
-        const controls=document.querySelector('.controls');
+        const share=document.getElementById('share'); const video=document.getElementById('remoteVideo'); const controls=document.querySelector('.controls');
+        if(isIOS&&share&&!share.dataset.airplayGuideInstalled){share.textContent='📱 Hướng dẫn AirPlay';share.dataset.airplayGuideInstalled='1';share.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();this._showAirplayGuide();},true);}
         if(controls&&!document.getElementById('fullscreenBtn')){const b=document.createElement('button');b.id='fullscreenBtn';b.className='ghost';b.textContent='⛶ Toàn màn hình';b.type='button';b.onclick=()=>this._toggleFullscreen();controls.insertBefore(b,document.getElementById('leave')||null);}
-        if(video){video.addEventListener('dblclick',()=>this._toggleFullscreen());}
+        if(video&&!video.dataset.fsInstalled){video.dataset.fsInstalled='1';video.addEventListener('dblclick',()=>this._toggleFullscreen());}
     }
-    _toggleFullscreen(){const stage=document.querySelector('.stage');const video=document.getElementById('remoteVideo');const target=stage||video;if(document.fullscreenElement){document.exitFullscreen().catch(()=>{});return;}if(target?.requestFullscreen){target.requestFullscreen().catch(()=>video?.requestFullscreen?.().catch(()=>{}));}else{video?.webkitEnterFullscreen?.();}}
+    _toggleFullscreen(){const stage=document.querySelector('.stage');const video=document.getElementById('remoteVideo');const target=stage||video;if(document.fullscreenElement){document.exitFullscreen().catch(()=>{});return;}if(target?.requestFullscreen)target.requestFullscreen().catch(()=>video?.requestFullscreen?.().catch(()=>{}));else video?.webkitEnterFullscreen?.();}
     _showAirplayGuide(){let m=document.getElementById('airplayGuideModal');if(!m){m=document.createElement('div');m.id='airplayGuideModal';Object.assign(m.style,{position:'fixed',inset:'0',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'rgba(0,0,0,.78)',backdropFilter:'blur(10px)'});m.innerHTML='<div style="width:min(420px,100%);padding:24px;border-radius:22px;background:#0b1220;border:1px solid rgba(255,255,255,.14);color:#f8fafc;font-family:system-ui"><div style="font-size:28px">📱</div><h2 style="margin:8px 0">Chia sẻ màn hình iPhone</h2><p style="color:#94a3b8;line-height:1.6;font-size:14px">iPhone sẽ gửi màn hình bằng AirPlay vào PC Host.</p><ol style="color:#cbd5e1;line-height:1.7;padding-left:22px"><li>Mở <b>Trung tâm điều khiển</b>.</li><li>Chạm <b>Phản chiếu màn hình / Screen Mirroring</b>.</li><li>Chọn <b>CastScreen-PC</b>.</li><li>Quay lại phòng này; PC Host sẽ hỏi bạn có cho phép nhận AirPlay hay không.</li></ol><button id="closeAirGuide" style="width:100%;margin-top:8px;background:linear-gradient(135deg,#22d3ee,#4f8cff);border:0;border-radius:12px;padding:12px;font-weight:900;cursor:pointer">Đã hiểu</button></div>';document.body.appendChild(m);document.getElementById('closeAirGuide').onclick=()=>m.remove();}else m.style.display='flex';}
     _setStatus(c,l){if(this.onStatusChange)this.onStatusChange(c,l);}
     _destroyPeerOnly(){clearInterval(this.heartbeatTimer);clearInterval(this.clientWatchdog);this.heartbeatTimer=null;this.clientWatchdog=null;if(this.control){try{this.control.close();}catch(_){}this.control=null;}this._closeMediaCalls();if(this.peer){try{this.peer.destroy();}catch(_){}this.peer=null;}this.remotePeerId='';this.statsPrev.clear();}
     close(){if(this.closed)return;this.closed=true;this._destroyPeerOnly();this.stopScreenCapture(false);clearInterval(this.statsTimer);this.statsTimer=null;this.roomReady=false;this.clientConnected=false;this.statsPrev.clear();this._stopAgentLease();}
 }
 window.WebRTCManager=WebRTCManager;
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>window.WebRTCManager.prototype._installRoomEnhancements?.call({}),{once:true}); else setTimeout(()=>window.WebRTCManager.prototype._installRoomEnhancements?.call({}),0);
