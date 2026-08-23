@@ -1,334 +1,451 @@
 /**
- * LAN-first WebRTC manager for Cast Screen Web.
+ * Cast Screen WebRTC manager — LAN-first, authoritative host room.
  *
- * Host owns room lifetime. A room has at most one client.
- * PeerJS is signaling/discovery only; media uses direct host candidates.
- * No STUN/TURN servers are configured.
+ * Signaling/discovery: PeerJS (control channel only).
+ * Media: WebRTC with no STUN/TURN servers, so LAN media uses host candidates.
+ * Room lifecycle: host owns the room; exactly one client may join.
+ * Heartbeat: host -> client every 2s; client leaves automatically when host disappears.
  */
 class WebRTCManager {
     constructor(options = {}) {
-        this.role = options.role || 'client';
-        this.isHost = options.isHost === true || this.role === 'host';
-        this.roomId = String(options.roomId || 'default').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'default';
+        this.role = options.role === 'host' ? 'host' : 'client';
+        this.isHost = this.role === 'host';
+        this.roomId = String(options.roomId || '')
+            .replace(/[^a-zA-Z0-9_-]/g, '')
+            .slice(0, 40);
+
+        if (!this.roomId) throw new Error('roomId is required');
+
         this.onStream = options.onStream || null;
+        this.onStreamEnded = options.onStreamEnded || null;
         this.onStatusChange = options.onStatusChange || null;
         this.onMetrics = options.onMetrics || null;
-        this.onSignalingReady = options.onSignalingReady || null;
+        this.onPeerCountChange = options.onPeerCountChange || null;
 
         this.peer = null;
         this.peerId = '';
+        this.control = null;
         this.remotePeerId = '';
-        this.hubConnection = null;
-        this.incomingCall = null;
         this.outgoingCall = null;
+        this.incomingCall = null;
         this.localStream = null;
         this.remoteStream = null;
-        this.statsInterval = null;
+        this.statsTimer = null;
         this.heartbeatTimer = null;
-        this.hostWatchdog = null;
-        this.lastHostPulse = 0;
-        this._closed = false;
-        this._signalingReady = false;
+        this.clientWatchdog = null;
+        this.lastHeartbeat = 0;
+        this.closed = false;
+        this.clientConnected = false;
+        this.roomReady = false;
 
+        // LAN-only media path. No STUN/TURN relay servers are configured.
         this.rtcConfig = {
             iceServers: [],
-            iceTransportPolicy: 'all',
-            sdpSemantics: 'unified-plan',
-            iceCandidatePoolSize: 0
+            iceCandidatePoolSize: 0,
+            sdpSemantics: 'unified-plan'
         };
     }
 
-    get hubId() {
+    get hostPeerId() {
         return `castscreen-room-${this.roomId}-host`;
     }
 
-    connectSignaling() {
-        this._closed = false;
+    get hasPeer() {
+        return !!(this.control && this.control.open && this.remotePeerId);
+    }
+
+    connect() {
+        if (this.closed) return;
+        this._setStatus('CONNECTING', this.isHost ? 'Đang tạo phòng…' : 'Đang kiểm tra phòng…');
+
         if (this.isHost) {
-            this._updateStatus('CONNECTING_SIGNALING', 'Đang tạo phòng...');
-            this._createHost();
+            this._createHostPeer();
         } else {
-            this._updateStatus('CONNECTING_SIGNALING', 'Đang kiểm tra phòng...');
-            this._createClient();
+            this._createClientPeer();
         }
     }
 
-    _createHost() {
-        if (this._closed) return;
+    _createHostPeer() {
         this._destroyPeerOnly();
-        const peer = new Peer(this.hubId, { config: this.rtcConfig, debug: 0 });
+        const peer = new Peer(this.hostPeerId, { config: this.rtcConfig, debug: 0 });
         this.peer = peer;
 
-        peer.on('open', (id) => {
-            this.peerId = id;
-            console.log('[LAN] HOST active:', id);
-            this._updateStatus('SIGNALING_READY', 'Phòng đã sẵn sàng');
-            this._notifySignalingReady();
+        peer.on('open', () => {
+            if (this.closed) return;
+            this.roomReady = true;
+            this._setStatus('WAITING', 'Phòng đã sẵn sàng — đang chờ thiết bị thứ hai');
         });
 
-        peer.on('connection', (conn) => this._acceptHostConnection(conn));
-        peer.on('call', (call) => this._handleIncomingCall(call));
+        peer.on('connection', conn => this._acceptClient(conn));
+        peer.on('call', call => this._handleIncomingCall(call));
 
-        peer.on('error', (err) => {
-            console.warn('[LAN] Host error:', err?.type || err);
-            if (!this._closed && err?.type === 'unavailable-id') {
-                this._updateStatus('FAILED', 'Mã phòng đã được sử dụng');
+        peer.on('error', err => {
+            const type = err?.type || '';
+            console.warn('[CastScreen][Host]', type, err);
+            if (this.closed) return;
+            if (type === 'unavailable-id' || type === 'id-taken') {
+                this._setStatus('FAILED', 'Mã phòng đang được sử dụng');
+            } else {
+                this._setStatus('FAILED', 'Không thể tạo phòng');
             }
         });
+
         peer.on('disconnected', () => {
-            if (!this._closed) this._updateStatus('FAILED', 'Mất kết nối máy chủ signaling');
+            if (!this.closed) this._setStatus('FAILED', 'Mất kết nối dịch vụ điều phối');
         });
+
         peer.on('close', () => {
-            if (!this._closed) this._updateStatus('FAILED', 'Phòng đã đóng');
+            if (!this.closed) this._setStatus('FAILED', 'Phòng đã đóng');
         });
     }
 
-    _createClient() {
-        if (this._closed) return;
+    _createClientPeer() {
         this._destroyPeerOnly();
-        const nodeId = `castscreen-client-${Math.random().toString(36).slice(2, 10)}`;
-        const peer = new Peer(nodeId, { config: this.rtcConfig, debug: 0 });
+        const clientId = `castscreen-client-${Math.random().toString(36).slice(2, 11)}`;
+        const peer = new Peer(clientId, { config: this.rtcConfig, debug: 0 });
         this.peer = peer;
 
         peer.on('open', () => this._connectToHost());
-        peer.on('call', (call) => this._handleIncomingCall(call));
-        peer.on('error', (err) => {
-            console.warn('[LAN] Client peer error:', err?.type || err);
-            if (!this._closed && (err?.type === 'peer-unavailable' || err?.type === 'not-found')) {
-                this._handleRoomNotFound();
+        peer.on('call', call => this._handleIncomingCall(call));
+
+        peer.on('error', err => {
+            const type = err?.type || '';
+            console.warn('[CastScreen][Client]', type, err);
+            if (this.closed) return;
+            if (type === 'peer-unavailable' || type === 'unavailable-id') {
+                this._setStatus('ROOM_NOT_FOUND', 'Phòng không tồn tại hoặc đã đóng');
+            } else {
+                this._setStatus('FAILED', 'Không thể tham gia phòng');
             }
         });
+
         peer.on('disconnected', () => {
-            if (!this._closed) this._handleHostGone('Mất kết nối tới máy chủ phòng');
+            if (!this.closed) this._setStatus('HOST_GONE', 'Mất kết nối với chủ phòng');
         });
+
         peer.on('close', () => {
-            if (!this._closed) this._handleHostGone('Máy chủ phòng đã đóng');
+            if (!this.closed) this._setStatus('HOST_GONE', 'Chủ phòng đã rời phòng');
         });
     }
 
-    _acceptHostConnection(conn) {
+    _acceptClient(conn) {
         // Exactly one client per room.
-        if (this.remotePeerId && this.remotePeerId !== conn.peer) {
+        if (this.control?.open || this.clientConnected) {
             try { conn.send({ type: 'room-full' }); } catch (_) {}
             try { conn.close(); } catch (_) {}
             return;
         }
 
-        this.hubConnection = conn;
+        this.control = conn;
         this.remotePeerId = conn.peer;
 
         conn.on('open', () => {
-            conn.send({ type: 'host-ready', peerId: this.peerId, roomId: this.roomId });
-            this._startHostHeartbeat();
-            this._updateStatus('CONNECTED', 'Thiết bị đã tham gia phòng');
-            this._notifySignalingReady();
-            this._callRemoteIfPossible();
+            if (this.closed) return;
+            this.clientConnected = true;
+            this.roomReady = true;
+            try {
+                conn.send({ type: 'host-ready', roomId: this.roomId, hostPeerId: this.peerId });
+            } catch (_) {}
+            this._startHeartbeat();
+            this._notifyPeerCount(2);
+            this._setStatus('CONNECTED', 'Đã kết nối thiết bị thứ hai');
+            this._maybeSendLocalStream();
         });
-        conn.on('data', (data) => {
-            if (data?.type === 'client-pulse') {
-                // Connection itself is enough; pulse is useful for diagnostics.
-                return;
-            }
-            if (data?.type === 'client-goodbye') {
-                this._handleClientGone();
+
+        conn.on('data', data => {
+            if (data?.type === 'client-hello') {
+                this._setStatus('CONNECTED', 'Đã kết nối thiết bị thứ hai');
+            } else if (data?.type === 'heartbeat-ack') {
+                // Heartbeat acknowledgement from client.
             }
         });
+
         conn.on('close', () => this._handleClientGone());
         conn.on('error', () => this._handleClientGone());
     }
 
     _connectToHost() {
-        if (!this.peer || this.peer.destroyed || this._closed) return;
-        const conn = this.peer.connect(this.hubId, { reliable: true, serialization: 'json' });
-        this.hubConnection = conn;
+        if (this.closed || !this.peer || this.peer.destroyed) return;
+        const conn = this.peer.connect(this.hostPeerId, {
+            reliable: true,
+            serialization: 'json'
+        });
+        this.control = conn;
 
+        let opened = false;
         conn.on('open', () => {
-            this.remotePeerId = this.hubId;
-            this.lastHostPulse = Date.now();
-            this.hostWatchdog = setInterval(() => {
-                if (this._closed) return;
-                if (Date.now() - this.lastHostPulse > 7000) {
-                    this._handleHostGone('Máy chủ phòng đã ngắt kết nối');
-                }
-            }, 2000);
-            conn.send({ type: 'client-hello', peerId: this.peerId, roomId: this.roomId });
-            this._updateStatus('CONNECTED', 'Đã vào phòng');
-            this._notifySignalingReady();
-            this._callRemoteIfPossible();
+            if (this.closed) return;
+            opened = true;
+            this.remotePeerId = this.hostPeerId;
+            this.clientConnected = true;
+            this.roomReady = true;
+            try { conn.send({ type: 'client-hello', peerId: this.peerId, roomId: this.roomId }); } catch (_) {}
+            this.lastHeartbeat = performance.now();
+            this._startClientWatchdog();
+            this._notifyPeerCount(2);
+            this._setStatus('CONNECTED', 'Đã vào phòng');
+            this._maybeSendLocalStream();
         });
-        conn.on('data', (data) => {
-            this.lastHostPulse = Date.now();
-            if (data?.type === 'host-ready') {
-                this.remotePeerId = data.peerId || this.hubId;
-                this._updateStatus('CONNECTED', 'Đã vào phòng');
-                this._notifySignalingReady();
-                this._callRemoteIfPossible();
-            } else if (data?.type === 'host-pulse') {
-                try { conn.send({ type: 'client-pulse' }); } catch (_) {}
-            } else if (data?.type === 'room-full') {
-                this._handleRoomFull();
-            }
-        });
-        conn.on('close', () => this._handleHostGone('Máy chủ phòng đã đóng'));
-        conn.on('error', (err) => {
-            if (err?.type === 'peer-unavailable' || err?.type === 'network') {
-                this._handleRoomNotFound();
-            } else {
-                this._handleHostGone('Không thể kết nối máy chủ phòng');
-            }
-        });
-    }
 
-    _startHostHeartbeat() {
-        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-        this.heartbeatTimer = setInterval(() => {
-            if (!this.hubConnection || this._closed) return;
-            try { this.hubConnection.send({ type: 'host-pulse', ts: Date.now() }); } catch (_) {}
-        }, 2000);
+        conn.on('data', data => {
+            if (data?.type === 'host-ready') {
+                this.remotePeerId = data.hostPeerId || this.hostPeerId;
+            } else if (data?.type === 'room-full') {
+                this._setStatus('ROOM_FULL', 'Phòng đã đủ 2 thiết bị');
+                try { conn.close(); } catch (_) {}
+            } else if (data?.type === 'host-heartbeat') {
+                this.lastHeartbeat = performance.now();
+                try { conn.send({ type: 'heartbeat-ack', t: data.t }); } catch (_) {}
+            }
+        });
+
+        conn.on('close', () => this._handleHostGone());
+        conn.on('error', () => this._handleHostGone());
+
+        // If the signaling peer disappears before it ever opens, classify as missing room.
+        setTimeout(() => {
+            if (!opened && !this.closed && !this.roomReady) {
+                this._setStatus('ROOM_NOT_FOUND', 'Phòng không tồn tại hoặc đã đóng');
+            }
+        }, 5500);
     }
 
     _handleIncomingCall(call) {
-        // Only accept media from the one client in this room.
-        if (this.remotePeerId && call.peer !== this.remotePeerId) {
+        if (this.closed) {
             try { call.close(); } catch (_) {}
             return;
         }
-        this.remotePeerId = call.peer;
-        try { call.answer(this.localStream || undefined); } catch (_) { try { call.answer(); } catch (__) {} }
-        this.incomingCall = call;
 
-        call.on('stream', (stream) => {
+        // One incoming media call per direction.
+        if (this.incomingCall && this.incomingCall !== call) {
+            try { this.incomingCall.close(); } catch (_) {}
+        }
+
+        this.incomingCall = call;
+        this.remotePeerId = call.peer;
+
+        try {
+            // Send our stream in the answer too when available so both directions can be active.
+            call.answer(this.localStream || undefined);
+        } catch (_) {
+            try { call.answer(); } catch (__) {}
+        }
+
+        call.on('stream', stream => {
             this.remoteStream = stream;
-            this._bindRemoteStream(stream);
-            this._updateStatus('CONNECTED', 'Đang nhận màn hình qua LAN');
-            this._startStatsMonitoring();
+            this._emitRemoteStream(stream);
+            this._startStats();
         });
+
         call.on('close', () => {
             if (this.incomingCall === call) this.incomingCall = null;
+            if (this.remoteStream && this.onStreamEnded) this.onStreamEnded();
         });
-        call.on('error', () => {
-            if (this.incomingCall === call) this.incomingCall = null;
-        });
+
+        call.on('error', err => console.warn('[CastScreen] incoming media error', err));
     }
 
-    _bindRemoteStream(stream) {
+    _emitRemoteStream(stream) {
         if (this.onStream) this.onStream(stream, stream.getVideoTracks()[0] || null);
     }
 
-    _callRemoteIfPossible() {
-        if (this._closed || !this.localStream || !this.remotePeerId || !this.peer || this.peer.destroyed) return;
-        if (this.outgoingCall) return;
+    async startScreenCapture(stream) {
+        if (!stream) throw new Error('Không có luồng màn hình');
+        this.stopScreenCapture(false);
+        this.localStream = stream;
+
+        for (const track of stream.getTracks()) {
+            if (track.kind === 'video') track.contentHint = 'motion';
+            track.addEventListener('ended', () => {
+                if (this.localStream === stream) this.stopScreenCapture(true);
+            }, { once: true });
+        }
+
+        if (!this.hasPeer) {
+            this._setStatus('WAITING', 'Đang chờ thiết bị thứ hai…');
+            return;
+        }
+        this._makeOutgoingCall();
+    }
+
+    stopScreenCapture(updateStatus = true) {
+        if (this.localStream) {
+            for (const track of this.localStream.getTracks()) {
+                try { track.stop(); } catch (_) {}
+            }
+            this.localStream = null;
+        }
+
+        if (this.outgoingCall) {
+            try { this.outgoingCall.close(); } catch (_) {}
+            this.outgoingCall = null;
+        }
+
+        if (updateStatus && this.hasPeer) {
+            this._setStatus('CONNECTED', 'Đã kết nối thiết bị thứ hai');
+        }
+    }
+
+    _maybeSendLocalStream() {
+        if (this.localStream && this.hasPeer) this._makeOutgoingCall();
+    }
+
+    _makeOutgoingCall() {
+        if (!this.localStream || !this.remotePeerId || !this.peer || this.peer.destroyed || this.closed) return;
+        if (this.outgoingCall) {
+            try { this.outgoingCall.close(); } catch (_) {}
+            this.outgoingCall = null;
+        }
 
         try {
             const call = this.peer.call(this.remotePeerId, this.localStream, {
                 metadata: { roomId: this.roomId, lanOnly: true }
             });
             this.outgoingCall = call;
-            call.on('stream', (stream) => {
+
+            call.on('stream', stream => {
                 this.remoteStream = stream;
-                this._bindRemoteStream(stream);
-                this._startStatsMonitoring();
+                this._emitRemoteStream(stream);
+                this._startStats();
             });
             call.on('close', () => {
                 if (this.outgoingCall === call) this.outgoingCall = null;
             });
-            call.on('error', () => {
+            call.on('error', err => {
+                console.warn('[CastScreen] outgoing media error', err);
                 if (this.outgoingCall === call) this.outgoingCall = null;
             });
-        } catch (e) {
-            console.warn('[LAN] Outgoing media call failed:', e);
+        } catch (err) {
+            console.warn('[CastScreen] call failed', err);
         }
     }
 
-    async startScreenCapture(stream) {
-        if (!stream) throw new Error('Không có MediaStream để chia sẻ.');
-        this.localStream = stream;
-        stream.getTracks().forEach(track => {
-            if (track.kind === 'video') track.contentHint = 'motion';
-            track.onended = () => {
-                if (this.localStream === stream) this.stopScreenCapture();
-            };
-        });
-        this._callRemoteIfPossible();
+    _startHeartbeat() {
+        clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = setInterval(() => {
+            if (!this.isHost || !this.control?.open || this.closed) return;
+            try {
+                this.control.send({ type: 'host-heartbeat', t: Date.now() });
+            } catch (_) {}
+        }, 2000);
     }
 
-    stopScreenCapture() {
-        if (!this.localStream) return;
-        this.localStream.getTracks().forEach(track => { try { track.stop(); } catch (_) {} });
-        this.localStream = null;
-        if (this.outgoingCall) {
-            try { this.outgoingCall.close(); } catch (_) {}
-            this.outgoingCall = null;
-        }
-        if (this.remotePeerId) {
-            this._updateStatus('CONNECTED', this.isHost ? 'Đang chờ thiết bị...' : 'Đã vào phòng');
-        }
-    }
-
-    _handleRoomNotFound() {
-        if (this._closed) return;
-        this._closed = true;
-        this._stopTimers();
-        this._destroyPeerOnly();
-        this._updateStatus('ROOM_NOT_FOUND', 'Phòng không tồn tại');
-    }
-
-    _handleRoomFull() {
-        if (this._closed) return;
-        this._closed = true;
-        this._stopTimers();
-        this._destroyPeerOnly();
-        this._updateStatus('ROOM_FULL', 'Phòng đã đủ 2 thiết bị');
-    }
-
-    _handleHostGone(message = 'Máy chủ phòng đã ngắt kết nối') {
-        if (this.isHost || this._closed) return;
-        this._closed = true;
-        this._stopTimers();
-        this._destroyPeerOnly();
-        this._updateStatus('HOST_GONE', message);
+    _startClientWatchdog() {
+        clearInterval(this.clientWatchdog);
+        this.clientWatchdog = setInterval(() => {
+            if (this.isHost || this.closed || !this.roomReady) return;
+            if (performance.now() - this.lastHeartbeat > 6500) {
+                this._handleHostGone();
+            }
+        }, 1000);
     }
 
     _handleClientGone() {
-        if (!this.isHost || this._closed) return;
-        this._stopHostHeartbeat();
+        if (this.closed) return;
+        this.clientConnected = false;
         this.remotePeerId = '';
-        this._stopMediaCalls();
-        this._updateStatus('DISCONNECTED', 'Thiết bị đã rời phòng');
+        clearInterval(this.heartbeatTimer);
+        this._closeMediaCalls();
+        this._notifyPeerCount(1);
+        this._setStatus('WAITING', 'Thiết bị thứ hai đã rời phòng');
     }
 
-    _stopTimers() {
-        this._stopHostHeartbeat();
-        if (this.hostWatchdog) {
-            clearInterval(this.hostWatchdog);
-            this.hostWatchdog = null;
-        }
+    _handleHostGone() {
+        if (this.isHost || this.closed) return;
+        this.closed = true;
+        clearInterval(this.clientWatchdog);
+        this.remotePeerId = '';
+        this._closeMediaCalls();
+        this._notifyPeerCount(0);
+        this._setStatus('HOST_GONE', 'Chủ phòng đã thoát — phòng đã đóng');
+        this._destroyPeerOnly();
     }
 
-    _stopHostHeartbeat() {
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
+    _closeMediaCalls() {
+        for (const callName of ['outgoingCall', 'incomingCall']) {
+            const call = this[callName];
+            if (call) {
+                try { call.close(); } catch (_) {}
+                this[callName] = null;
+            }
         }
+        if (this.onStreamEnded) this.onStreamEnded();
     }
 
-    _stopMediaCalls() {
-        if (this.incomingCall) {
-            try { this.incomingCall.close(); } catch (_) {}
-            this.incomingCall = null;
-        }
-        if (this.outgoingCall) {
-            try { this.outgoingCall.close(); } catch (_) {}
-            this.outgoingCall = null;
-        }
+    _notifyPeerCount(count) {
+        if (this.onPeerCountChange) this.onPeerCountChange(count);
+    }
+
+    _startStats() {
+        if (this.statsTimer) return;
+        this.statsTimer = setInterval(async () => {
+            try {
+                const calls = [this.incomingCall, this.outgoingCall].filter(Boolean);
+                if (!calls.length) return;
+
+                let bestFps = 0;
+                let rtt = 0;
+                let jitter = 0;
+                let decode = 0;
+                let localType = '';
+                let remoteType = '';
+
+                for (const call of calls) {
+                    if (!call.peerConnection) continue;
+                    const stats = await call.peerConnection.getStats();
+                    stats.forEach(report => {
+                        if (report.type === 'inbound-rtp' && (report.kind === 'video' || report.mediaType === 'video')) {
+                            if (Number.isFinite(report.framesPerSecond)) bestFps = Math.max(bestFps, report.framesPerSecond);
+                            if (Number.isFinite(report.jitter)) jitter = Math.max(jitter, report.jitter * 1000);
+                            if (Number.isFinite(report.totalDecodeTime) && report.framesDecoded > 0) {
+                                decode = Math.max(decode, (report.totalDecodeTime / report.framesDecoded) * 1000);
+                            }
+                        }
+                        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                            if (Number.isFinite(report.currentRoundTripTime)) rtt = Math.max(rtt, report.currentRoundTripTime * 1000);
+                            if (report.localCandidateId) {
+                                const c = stats.get(report.localCandidateId);
+                                if (c?.candidateType) localType = c.candidateType;
+                            }
+                            if (report.remoteCandidateId) {
+                                const c = stats.get(report.remoteCandidateId);
+                                if (c?.candidateType) remoteType = c.candidateType;
+                            }
+                        }
+                    });
+                }
+
+                const lan = localType === 'host' && remoteType === 'host';
+                const pipeline = Math.max(0, rtt + jitter + decode);
+                if (this.onMetrics) {
+                    this.onMetrics({
+                        fps: Math.round(bestFps || 0),
+                        rtt: Math.round(rtt || 0),
+                        pipelineMs: Math.round(pipeline),
+                        localCandidateType: localType,
+                        remoteCandidateType: remoteType,
+                        lan
+                    });
+                }
+            } catch (_) {}
+        }, 500);
+    }
+
+    _setStatus(code, label) {
+        if (this.onStatusChange) this.onStatusChange(code, label);
     }
 
     _destroyPeerOnly() {
-        this._stopMediaCalls();
-        if (this.hubConnection) {
-            try { this.hubConnection.close(); } catch (_) {}
-            this.hubConnection = null;
+        clearInterval(this.heartbeatTimer);
+        clearInterval(this.clientWatchdog);
+        this.heartbeatTimer = null;
+        this.clientWatchdog = null;
+
+        if (this.control) {
+            try { this.control.close(); } catch (_) {}
+            this.control = null;
         }
+        this._closeMediaCalls();
         if (this.peer) {
             try { this.peer.destroy(); } catch (_) {}
             this.peer = null;
@@ -336,73 +453,15 @@ class WebRTCManager {
         this.remotePeerId = '';
     }
 
-    _notifySignalingReady() {
-        if (this._signalingReady) return;
-        this._signalingReady = true;
-        if (this.onSignalingReady) this.onSignalingReady();
-    }
-
-    _updateStatus(code, label) {
-        if (this.onStatusChange) this.onStatusChange(code, label);
-    }
-
-    _startStatsMonitoring() {
-        if (this.statsInterval) return;
-        this.statsInterval = setInterval(async () => {
-            try {
-                const calls = [this.incomingCall, this.outgoingCall].filter(Boolean);
-                const pc = calls.map(c => c && c.peerConnection).find(Boolean);
-                if (!pc) return;
-                const stats = await pc.getStats();
-                let fps = 0, rtt = 0, jitter = 0, decodeMs = 0, localType = '', remoteType = '';
-                stats.forEach(report => {
-                    if (report.type === 'inbound-rtp' && (report.kind === 'video' || report.mediaType === 'video')) {
-                        if (Number.isFinite(report.framesPerSecond)) fps = report.framesPerSecond;
-                        if (Number.isFinite(report.jitter)) jitter = report.jitter * 1000;
-                        if (Number.isFinite(report.totalDecodeTime) && report.framesDecoded > 0) decodeMs = (report.totalDecodeTime / report.framesDecoded) * 1000;
-                    }
-                    if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-                        if (Number.isFinite(report.currentRoundTripTime)) rtt = report.currentRoundTripTime * 1000;
-                        const local = report.localCandidateId ? stats.get(report.localCandidateId) : null;
-                        const remote = report.remoteCandidateId ? stats.get(report.remoteCandidateId) : null;
-                        localType = local?.candidateType || localType;
-                        remoteType = remote?.candidateType || remoteType;
-                    }
-                });
-                if (this.onMetrics) this.onMetrics({
-                    fps: Math.round(fps),
-                    ping: Math.round(rtt),
-                    pipelineMs: Math.round(Math.max(0, rtt + jitter + decodeMs)),
-                    localCandidateType: localType,
-                    remoteCandidateType: remoteType,
-                    lan: localType === 'host' && remoteType === 'host'
-                });
-            } catch (_) {}
-        }, 500);
-    }
-
-    _stopStatsMonitoring() {
-        if (this.statsInterval) {
-            clearInterval(this.statsInterval);
-            this.statsInterval = null;
-        }
-    }
-
     close() {
-        if (this._closed) return;
-        this._closed = true;
-        this._stopTimers();
-        this._stopStatsMonitoring();
-        if (this.hubConnection && !this.isHost) {
-            try { this.hubConnection.send({ type: 'client-goodbye' }); } catch (_) {}
-        }
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(track => { try { track.stop(); } catch (_) {} });
-            this.localStream = null;
-        }
+        if (this.closed) return;
+        this.closed = true;
         this._destroyPeerOnly();
-        this.peerId = '';
-        this.remoteStream = null;
+        this.stopScreenCapture(false);
+        clearInterval(this.statsTimer);
+        this.statsTimer = null;
+        this.roomReady = false;
+        this.clientConnected = false;
     }
 }
 
