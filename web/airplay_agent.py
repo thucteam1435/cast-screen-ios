@@ -1,15 +1,21 @@
 import json
 import os
 import secrets
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 from engine.airplay_server import AirPlayServer
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("CASTSCREEN_AIRPLAY_PORT", "8765"))
+DENY_COOLDOWN_SECONDS = 12
 
 state_lock = threading.Lock()
 state = {
@@ -20,6 +26,7 @@ state = {
     "approved": False,
     "last_event": 0.0,
     "last_error": None,
+    "denied_until": 0.0,
 }
 agent_token = secrets.token_urlsafe(24)
 airplay = AirPlayServer()
@@ -34,14 +41,18 @@ def _set_event(device=None, connected=False, pending=False):
 
 
 def _on_connected(device):
+    name = device or "iPhone / iPad"
+    now = time.time()
     with state_lock:
         approved = bool(state["approved"])
+        denied_until = float(state.get("denied_until", 0))
     if approved:
-        _set_event(device or "iPhone / iPad", connected=True, pending=False)
+        _set_event(name, connected=True, pending=False)
         return
-    # The AirPlay receiver must be alive so iPhone can discover/connect.
-    # We immediately expose the connection to the web as a permission request.
-    _set_event(device or "iPhone / iPad", connected=True, pending=True)
+    if now < denied_until:
+        _set_event(name, connected=True, pending=False)
+        return
+    _set_event(name, connected=True, pending=True)
 
 
 def _on_disconnected():
@@ -88,17 +99,22 @@ def stop_airplay():
 def authorize(allow: bool):
     with state_lock:
         connected = bool(state["airplay_connected"])
+        device = state.get("device") or "iPhone / iPad"
         state["approved"] = bool(allow)
         state["pending_approval"] = False
+        if not allow:
+            state["denied_until"] = time.time() + DENY_COOLDOWN_SECONDS
+
     if not allow and connected:
-        # Stop the receiver. This forcibly ends the current AirPlay session.
         stop_airplay()
         start_airplay()
+        with state_lock:
+            state["device"] = device
     return {"ok": True, "allowed": bool(allow)}
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CastScreenAirPlayAgent/1.0"
+    server_version = "CastScreenAirPlayAgent/1.1"
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -117,7 +133,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authorized(self):
         token = self.headers.get("X-CastScreen-Agent-Token", "")
-        # Token is optional for localhost-only convenience; if supplied, it must match.
         return not token or secrets.compare_digest(token, agent_token)
 
     def do_OPTIONS(self):
