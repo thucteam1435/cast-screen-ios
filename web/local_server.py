@@ -268,6 +268,15 @@ def run_server(port=8888, enable_ssl=False):
 
     proto = "https" if use_https else "http"
 
+    # Auto-start AirPlay Agent daemon in background
+    try:
+        import airplay_agent
+        agent_thread = threading.Thread(target=airplay_agent.main, daemon=True)
+        agent_thread.start()
+        print("🍏 [AirPlay Agent] Đã tự động kích hoạt API tại http://127.0.0.1:8765")
+    except Exception as e:
+        print("⚠️ [AirPlay Agent] Khởi chạy nền:", e)
+
     print("=" * 68)
     print(f"🚀 CAST SCREEN PRO — WEB PLATFORM ({proto.upper()} SERVER)")
     print("=" * 68)
@@ -278,11 +287,13 @@ def run_server(port=8888, enable_ssl=False):
     for name, ip in all_ips:
         print(f"   👉 {proto}://{ip}:{port}")
     print("=" * 68)
+    print("💡 Tất cả đã sẵn sàng (Web Server + AirPlay Agent chạy chung 1 tiến trình)!")
+    print()
     
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nĐã dừng Web Server.")
+        print("\nĐã dừng Web Server & AirPlay Agent.")
 
 if __name__ == "__main__":
     use_ssl = "--ssl" in sys.argv
