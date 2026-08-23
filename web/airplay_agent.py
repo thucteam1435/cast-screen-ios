@@ -30,6 +30,7 @@ state = {
     "denied_until": 0.0,
     "lease_active": False,
     "last_lease": 0.0,
+    "room_active": False,
 }
 agent_token = secrets.token_urlsafe(24)
 airplay = AirPlayServer()
@@ -68,10 +69,14 @@ airplay.on_client_disconnected = _on_disconnected
 
 
 def start_airplay():
+    with state_lock:
+        state["room_active"] = True
+
     if airplay.is_running:
         with state_lock:
             state["running"] = True
         return True
+
     config = {
         "server_name": "CastScreen-PC",
         "resolution": "1920x1080",
@@ -83,11 +88,14 @@ def start_airplay():
     with state_lock:
         state["running"] = bool(ok)
         state["last_error"] = None if ok else "Không thể khởi động UxPlay/AirPlay"
+        if not ok:
+            state["room_active"] = False
     return ok
 
 
-def stop_airplay():
+def stop_airplay(clear_room=True):
     try:
+        # AirPlayServer.stop() tears down UxPlay AND the mDNS advertisement.
         airplay.stop()
     finally:
         with state_lock:
@@ -97,21 +105,24 @@ def stop_airplay():
             state["pending_approval"] = False
             state["device"] = None
             state["last_event"] = time.time()
+            if clear_room:
+                state["room_active"] = False
 
 
 def touch_lease():
     with state_lock:
         state["lease_active"] = True
         state["last_lease"] = time.time()
-    return {"ok": True, "leaseTimeoutSeconds": LEASE_TIMEOUT_SECONDS}
+        room_active = bool(state["room_active"])
+    return {"ok": True, "leaseTimeoutSeconds": LEASE_TIMEOUT_SECONDS, "roomActive": room_active}
 
 
 def revoke_lease():
     with state_lock:
         state["lease_active"] = False
         state["last_lease"] = 0.0
-    stop_airplay()
-    return {"ok": True}
+    stop_airplay(clear_room=True)
+    return {"ok": True, "airplayActive": False, "roomActive": False}
 
 
 def _lease_watchdog():
@@ -121,7 +132,7 @@ def _lease_watchdog():
             active = bool(state["lease_active"])
             last = float(state["last_lease"] or 0.0)
         if active and last and time.time() - last > LEASE_TIMEOUT_SECONDS:
-            print("[CastScreen AirPlay Agent] Host web lease expired; stopping AirPlay receiver.")
+            print("[CastScreen AirPlay Agent] Host web lease expired; stopping AirPlay and mDNS advertisement.")
             revoke_lease()
 
 
@@ -134,15 +145,19 @@ def authorize(allow: bool):
         if not allow:
             state["denied_until"] = time.time() + DENY_COOLDOWN_SECONDS
     if not allow and connected:
-        stop_airplay()
-        start_airplay()
+        # Restart only while the Host room lease is still alive.
+        with state_lock:
+            room_active = bool(state["room_active"])
+        stop_airplay(clear_room=False)
+        if room_active:
+            start_airplay()
         with state_lock:
             state["device"] = device
     return {"ok": True, "allowed": bool(allow)}
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CastScreenAirPlayAgent/1.4"
+    server_version = "CastScreenAirPlayAgent/1.5"
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -182,7 +197,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, payload)
             return
         if parsed.path == "/health":
-            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.4"})
+            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.5"})
             return
         self._json(404, {"ok": False, "error": "not-found"})
 
@@ -221,8 +236,9 @@ def main():
     print("=" * 64)
     print("CAST SCREEN PRO — LOCAL AIRPLAY AGENT")
     print(f"Control API: http://{HOST}:{PORT}")
-    print("AirPlay receiver: starts only while a Cast Screen Host room is active")
+    print("AirPlay + mDNS: starts only while a Cast Screen Host room is active")
     print("Host lease timeout: %ss" % LEASE_TIMEOUT_SECONDS)
+    print("When the room closes or the browser disappears, UxPlay and mDNS stop automatically.")
     print("Packaged mode: no Python is required on the user's PC.")
     print("=" * 64)
     try:
