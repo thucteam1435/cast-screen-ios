@@ -14,6 +14,9 @@ on:
       - '.github/workflows/build-airplay-agent.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -65,3 +68,17 @@ jobs:
           name: CastScreen-AirPlay-Agent-Portable
           path: dist/CastScreenAirPlayAgent/
           if-no-files-found: error
+
+      - name: Publish stable direct-download release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete agent-latest --yes --cleanup-tag 2>$null
+          if ($LASTEXITCODE -ne 0) { $global:LASTEXITCODE = 0 }
+          gh release create agent-latest `
+            dist/installer/CastScreenAirPlayAgentSetup.exe `
+            dist/installer/SHA256SUMS.txt `
+            --title "Cast Screen AirPlay Agent (Latest)" `
+            --notes "Stable direct-download build for Cast Screen Pro. The installer sets up the Windows AirPlay Agent; Python is not required." `
+            --prerelease
