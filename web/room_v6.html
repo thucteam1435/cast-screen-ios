@@ -80,6 +80,15 @@
             object-fit: contain;
             background: #02050a;
         }
+        #airplayWebCanvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #02050a;
+            z-index: 2;
+        }
         .stage.fs {
             position: fixed;
             inset: 0;
@@ -93,7 +102,7 @@
             align-items: center;
             justify-content: center;
         }
-        .stage.fs video { width: 100%; height: 100%; object-fit: contain; }
+        .stage.fs video, .stage.fs #airplayWebCanvas { width: 100%; height: 100%; object-fit: contain; }
         .exitfs {
             display: none;
             position: absolute;
@@ -117,6 +126,7 @@
             text-align: center;
             padding: 28px;
             color: var(--muted);
+            z-index: 1;
         }
         .hud {
             position: absolute;
@@ -421,6 +431,7 @@
         <section class="card">
             <div id="stage" class="stage">
                 <video id="video" autoplay playsinline></video>
+                <canvas id="airplayWebCanvas" hidden></canvas>
                 <div id="empty" class="empty">Đang chờ màn hình…</div>
                 <div class="hud">
                     <span id="fps">FPS —</span>
@@ -456,7 +467,7 @@
                 <div id="agentText" class="muted">Đang kiểm tra Agent trên PC Host…</div>
                 <button id="checkAgentBtn" class="ghost" style="width:100%;margin-top:10px;">🔄 Kiểm tra Agent</button>
                 <div id="install" class="install" hidden>
-                    PC Host chưa có Agent. Cài một lần để tự động bật AirPlay khi mở phòng.<br>
+                    PC Host chưa có Agent. Cài một lần để tự động bật AirPlay khi có iPhone vào phòng.<br>
                     <a href="https://github.com/thucteam1435/cast-screen-ios/releases/download/agent-latest/CastScreenAirPlayAgentSetup.exe" target="_blank" download>⬇ Cài Cast Screen Agent</a>
                 </div>
             </div>
@@ -520,7 +531,7 @@
     <!-- Core Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-    <script src="js/webrtc_manager.js?v=6.2"></script>
+    <script src="js/webrtc_manager.js?v=6.5"></script>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const q = new URLSearchParams(location.search);
@@ -547,6 +558,7 @@
         const video = document.getElementById('video');
         const empty = document.getElementById('empty');
         const stage = document.getElementById('stage');
+        const canvas = document.getElementById('airplayWebCanvas');
         const unmute = document.getElementById('unmute');
         const joinShareBtn = document.getElementById('joinShareBtn');
         const joinShareLabel = document.getElementById('joinShareLabel');
@@ -558,7 +570,14 @@
         let localStream = null;
         let agentReady = false;
         let agentToken = '';
-        let leaseTimer = 0;
+        let iosPresent = false;
+        let lastIOSHeartbeat = 0;
+        let platformSocket = null;
+        let platformTimer = null;
+        let airplayDecoder = null;
+        let airplayReader = null;
+        let airplayStarted = false;
+        let agentPollTimer = null;
 
         function setStatus(t, ok = false, bad = false) {
             status.textContent = t;
@@ -589,7 +608,9 @@
                 const st = await agent('/airplay/status');
                 agentToken = st.token || '';
                 if (dot) dot.className = 'dot on';
-                if (text) text.textContent = '🟢 Agent đã kết nối · Sẵn sàng nhận AirPlay';
+                if (text) text.textContent = iosPresent 
+                    ? '🟢 Agent đang chạy · 🟢 iPhone đã vào phòng · AirPlay đang bật' 
+                    : '🟢 Agent đang chạy · Chờ iPhone vào phòng';
                 if (install) install.hidden = true;
             } catch (_) {
                 agentReady = false;
@@ -601,6 +622,165 @@
 
         if (checkAgentBtn) {
             checkAgentBtn.onclick = () => checkAgentStatus();
+        }
+
+        // ================= AIRPLAY WEBCODECS VIDEO DECODER (PC HOST) =================
+        async function startAirPlayWebVideo() {
+            if (!isHost || airplayStarted || !iosPresent) return;
+            airplayStarted = true;
+            const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+            
+            try {
+                if (typeof VideoDecoder === 'undefined') throw new Error('WebCodecs not supported');
+                const res = await fetch('http://127.0.0.1:8765/airplay/video', {
+                    cache: 'no-store',
+                    headers: { 'X-CastScreen-Agent-Token': agentToken }
+                });
+                if (!res.ok || !res.body) throw new Error('airplay-stream-unavailable');
+
+                airplayReader = res.body.getReader();
+                airplayDecoder = new VideoDecoder({
+                    output: frame => {
+                        canvas.width = frame.displayWidth;
+                        canvas.height = frame.displayHeight;
+                        ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+                        frame.close();
+                        canvas.hidden = false;
+                        if (video) video.hidden = true;
+                        if (empty) empty.style.display = 'none';
+                    },
+                    error: e => console.warn('[AirPlay Decode Error]', e)
+                });
+                airplayDecoder.configure({ codec: 'avc1.640028', optimizeForLatency: true });
+
+                let buf = new Uint8Array(0);
+                while (airplayReader) {
+                    const { value, done } = await airplayReader.read();
+                    if (done) break;
+                    if (!value) continue;
+                    const next = new Uint8Array(buf.length + value.length);
+                    next.set(buf);
+                    next.set(value, buf.length);
+                    buf = next;
+                    while (buf.length >= 13) {
+                        const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+                        const len = dv.getUint32(0);
+                        if (len < 9 || buf.length < 4 + len) break;
+                        const pts = Number(dv.getBigUint64(4));
+                        const key = !!buf[12];
+                        const payload = buf.slice(13, 4 + len);
+                        try {
+                            airplayDecoder.decode(new EncodedVideoChunk({
+                                type: key ? 'key' : 'delta',
+                                timestamp: pts,
+                                data: payload
+                            }));
+                        } catch (err) {
+                            console.warn('[Chunk decode error]', err);
+                        }
+                        buf = buf.slice(4 + len);
+                    }
+                }
+            } catch (err) {
+                console.warn('[AirPlay Video Stream Error]', err);
+            } finally {
+                airplayStarted = false;
+                airplayReader = null;
+                try { airplayDecoder && airplayDecoder.close(); } catch (_) {}
+                airplayDecoder = null;
+            }
+        }
+
+        async function startAirPlayOnAgent() {
+            if (!isHost || !agentReady || !iosPresent) return;
+            try {
+                if (!agentToken) {
+                    const st = await agent('/airplay/status');
+                    agentToken = st.token || '';
+                }
+                await agent('/airplay/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CastScreen-Agent-Token': agentToken,
+                        'X-CastScreen-iOS-Confirmed': 'true'
+                    },
+                    body: JSON.stringify({ roomId: code, resolution: '1920x1080', fps: 60, sharpen: 0 })
+                });
+                checkAgentStatus();
+                startAirPlayWebVideo();
+            } catch (e) {
+                console.warn('[Start AirPlay on Agent Error]', e);
+            }
+        }
+
+        async function stopAirPlayOnAgent() {
+            if (!isHost || !agentReady) return;
+            try {
+                await agent('/airplay/stop', {
+                    method: 'POST',
+                    headers: agentToken ? { 'X-CastScreen-Agent-Token': agentToken } : {}
+                });
+            } catch (_) {}
+            if (canvas) canvas.hidden = true;
+            if (video) video.hidden = false;
+            checkAgentStatus();
+        }
+
+        // ================= PLATFORM SIGNALING (iOS PRESENCE DETECTION) =================
+        function connectPlatformSignaling() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const role = isHost ? 'host' : 'client';
+            const ws = new WebSocket(`${proto}//${location.host}/ws?room=${encodeURIComponent(code)}&role=${role}`);
+            platformSocket = ws;
+
+            ws.addEventListener('open', () => {
+                if (!isHost) sendPlatformHeartbeat();
+            });
+
+            ws.addEventListener('message', e => {
+                if (!isHost) return;
+                let d;
+                try { d = JSON.parse(e.data); } catch (_) { return; }
+                if (d?.type !== 'client-platform') return;
+
+                const platform = String(d.platform || '').toLowerCase();
+                lastIOSHeartbeat = Date.now();
+                const next = platform === 'ios';
+                if (next !== iosPresent) {
+                    iosPresent = next;
+                    if (iosPresent) {
+                        startAirPlayOnAgent();
+                    } else {
+                        stopAirPlayOnAgent();
+                    }
+                }
+            });
+
+            ws.addEventListener('close', () => {
+                platformSocket = null;
+                if (platformTimer) { clearInterval(platformTimer); platformTimer = null; }
+                if (isHost && iosPresent) {
+                    iosPresent = false;
+                    stopAirPlayOnAgent();
+                }
+            });
+        }
+
+        function sendPlatformHeartbeat() {
+            if (isHost || !platformSocket || platformSocket.readyState !== WebSocket.OPEN) return;
+            const platform = isIOS ? 'ios' : 'other';
+            platformSocket.send(JSON.stringify({ type: 'client-platform', platform, roomId: code, t: Date.now() }));
+        }
+
+        function installHostIOSWatchdog() {
+            if (!isHost) return;
+            setInterval(() => {
+                if (iosPresent && lastIOSHeartbeat && Date.now() - lastIOSHeartbeat > 6500) {
+                    iosPresent = false;
+                    stopAirPlayOnAgent();
+                }
+            }, 1500);
         }
 
         // ================= SWITCH VIEW BASED ON ROLE =================
@@ -626,17 +806,26 @@
             };
 
             checkAgentStatus();
+            installHostIOSWatchdog();
+            agentPollTimer = setInterval(() => {
+                checkAgentStatus();
+                if (iosPresent && !airplayStarted) startAirPlayWebVideo();
+            }, 5000);
         } else {
             hostView.style.display = 'none';
             joinView.style.display = 'flex';
+            clearInterval(platformTimer);
+            platformTimer = setInterval(sendPlatformHeartbeat, 2000);
         }
+
+        connectPlatformSignaling();
 
         // ================= WEBRTC MANAGER INITIALIZATION =================
         manager = new WebRTCManager({
             role: isHost ? 'host' : 'client',
             roomId: code,
             onStream: (s) => {
-                if (video) {
+                if (video && isHost) {
                     video.srcObject = s;
                     video.muted = true;
                     video.play().catch(() => {});
@@ -645,7 +834,7 @@
                 }
             },
             onStreamEnded: () => {
-                if (video) {
+                if (video && isHost) {
                     video.srcObject = null;
                     if (empty) empty.style.display = 'grid';
                     if (unmute) unmute.disabled = true;
@@ -738,7 +927,14 @@
 
         // Leave room
         const leaveHandler = async () => {
-            await stopSharing();
+            if (isHost) {
+                await stopAirPlayOnAgent();
+                if (agentPollTimer) clearInterval(agentPollTimer);
+            } else {
+                await stopSharing();
+            }
+            if (platformSocket) { try { platformSocket.close(); } catch (_) {} }
+            if (platformTimer) clearInterval(platformTimer);
             try { manager.close(); } catch (_) {}
             location.replace('home.html');
         };
@@ -747,6 +943,9 @@
         window.addEventListener('pagehide', () => {
             try { manager.close(); } catch (_) {}
             if (localStream) localStream.getTracks().forEach(t => t.stop());
+            if (isHost && agentReady) {
+                navigator.sendBeacon('http://127.0.0.1:8765/airplay/stop', '');
+            }
         });
     });
     </script>
