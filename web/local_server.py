@@ -246,7 +246,7 @@ def ensure_ssl_cert():
         print('[SSL] Cannot auto-generate cert:', e)
         return None, None
 
-def run_server(port=8080, enable_ssl=False):
+def run_server(port=8888, enable_ssl=False):
     import ssl
     all_ips = get_all_ips()
     # FIX: Use ThreadingHTTPServer so long-poll /signal/poll does NOT block
@@ -286,5 +286,6 @@ def run_server(port=8080, enable_ssl=False):
 
 if __name__ == "__main__":
     use_ssl = "--ssl" in sys.argv
-    port = 8443 if use_ssl else (int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8080)
+    port = 8443 if use_ssl else (int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8888)
     run_server(port, enable_ssl=use_ssl)
+
