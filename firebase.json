@@ -1,0 +1,50 @@
+{
+  "hosting": {
+    "public": "web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "**/*.py",
+      "**/*.bat",
+      "**/*.iss"
+    ],
+    "rewrites": [
+      {
+        "source": "/",
+        "destination": "/home.html"
+      },
+      {
+        "source": "/join",
+        "destination": "/join.html"
+      },
+      {
+        "source": "/room",
+        "destination": "/room_v6.html"
+      },
+      {
+        "source": "/room_v6",
+        "destination": "/room_v6.html"
+      },
+      {
+        "source": "/room_v6.html",
+        "destination": "/room_v6.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "**/*",
+        "headers": [
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "*"
+          },
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      }
+    ]
+  }
+}

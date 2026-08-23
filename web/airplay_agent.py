@@ -308,6 +308,7 @@ class Handler(BaseHTTPRequestHandler):
                 if state["room_active"]:
                     _touch_lease_locked()
                 payload = dict(state)
+                payload["airplay_active"] = bool(state.get("room_active"))
             payload["token"] = agent_token
             payload["port"] = PORT
             payload["host"] = HOST

@@ -287,7 +287,7 @@
             font-size: 12px;
         }
 
-        /* ================= JOIN / CLIENT VIEW (EXACT MATCH) ================= */
+        /* ================= JOIN / CLIENT VIEW ================= */
         .join-wrapper {
             min-height: calc(100vh - 110px);
             display: flex;
@@ -465,11 +465,20 @@
             <div id="agentPanel" class="panel">
                 <h3><span id="agentDot" class="dot"></span>AirPlay Agent (PC Host)</h3>
                 <div id="agentText" class="muted">Đang kiểm tra Agent trên PC Host…</div>
-                <button id="checkAgentBtn" class="ghost" style="width:100%;margin-top:10px;">🔄 Kiểm tra Agent</button>
-                <div id="install" class="install" hidden>
-                    PC Host chưa có Agent. Cài một lần để tự động bật AirPlay khi có iPhone vào phòng.<br>
-                    <a href="https://github.com/thucteam1435/cast-screen-ios/releases/download/agent-latest/CastScreenAirPlayAgentSetup.exe" target="_blank" download>⬇ Cài Cast Screen Agent</a>
+                
+                <!-- Nút bật/tắt thủ công khi Agent đang chạy -->
+                <div id="agentControls" style="margin-top:12px;display:none;">
+                    <button id="toggleAirPlayBtn" class="primary" style="width:100%;">🍏 Bật AirPlay (CastScreen-PC)</button>
                 </div>
+
+                <!-- Nút mở nhanh 1-Click khi Agent chưa chạy -->
+                <div id="install" class="install" hidden>
+                    <div style="margin-bottom:8px;">PC Host chưa mở Agent. Bạn có thể mở nhanh hoặc tải bộ cài:</div>
+                    <button id="launchAgentBtn" class="primary" style="width:100%;margin-bottom:8px;">🚀 Mở Cast Screen Agent (1-Click)</button>
+                    <a href="https://github.com/thucteam1435/cast-screen-ios/releases/download/agent-latest/CastScreenAirPlayAgentSetup.exe" target="_blank" download style="display:block;text-align:center;">⬇ Tải bộ cài Agent (.exe)</a>
+                </div>
+
+                <button id="checkAgentBtn" class="ghost" style="width:100%;margin-top:8px;">🔄 Kiểm tra kết nối Agent</button>
             </div>
 
             <div id="infoBox" class="info">
@@ -565,6 +574,8 @@
         const joinLeaveBtn = document.getElementById('joinLeaveBtn');
         const hostLeave = document.getElementById('hostLeave');
         const checkAgentBtn = document.getElementById('checkAgentBtn');
+        const toggleAirPlayBtn = document.getElementById('toggleAirPlayBtn');
+        const launchAgentBtn = document.getElementById('launchAgentBtn');
 
         let manager = null;
         let localStream = null;
@@ -577,6 +588,7 @@
         let airplayDecoder = null;
         let airplayReader = null;
         let airplayStarted = false;
+        let airplayActive = false;
         let agentPollTimer = null;
         let httpPollTimer = null;
 
@@ -615,20 +627,39 @@
             const dot = document.getElementById('agentDot');
             const text = document.getElementById('agentText');
             const install = document.getElementById('install');
+            const agentControls = document.getElementById('agentControls');
             try {
                 const s = await agent('/health');
                 agentReady = !!s.ok;
                 if (!agentReady) throw 0;
                 const st = await agent('/airplay/status');
                 agentToken = st.token || '';
+                airplayActive = !!st.airplay_active || !!st.room_active || airplayStarted;
+                
                 if (dot) dot.className = 'dot on';
-                if (text) text.textContent = iosPresent 
-                    ? '🟢 Agent đang chạy · 🟢 iPhone đã vào phòng · AirPlay đang bật' 
-                    : '🟢 Agent đang chạy · Chờ iPhone vào phòng';
+                if (agentControls) agentControls.style.display = 'block';
                 if (install) install.hidden = true;
+
+                if (airplayActive) {
+                    if (text) text.textContent = '🟢 AirPlay ĐANG BẬT · Tên thiết bị: CastScreen-PC';
+                    if (toggleAirPlayBtn) {
+                        toggleAirPlayBtn.textContent = '⏹ Tắt AirPlay Receiver';
+                        toggleAirPlayBtn.className = 'danger';
+                    }
+                } else {
+                    if (text) text.textContent = iosPresent 
+                        ? '🟢 Agent đang chạy · Đã phát hiện iPhone' 
+                        : '🟢 Agent sẵn sàng · Bấm nút dưới để bật AirPlay';
+                    if (toggleAirPlayBtn) {
+                        toggleAirPlayBtn.textContent = '🍏 Bật AirPlay (CastScreen-PC)';
+                        toggleAirPlayBtn.className = 'primary';
+                    }
+                }
             } catch (_) {
                 agentReady = false;
+                airplayActive = false;
                 if (dot) dot.className = 'dot';
+                if (agentControls) agentControls.style.display = 'none';
                 if (text) text.textContent = '🔴 Chưa kết nối Agent trên PC Host';
                 if (install) install.hidden = false;
             }
@@ -638,9 +669,33 @@
             checkAgentBtn.onclick = () => checkAgentStatus();
         }
 
+        if (launchAgentBtn) {
+            launchAgentBtn.onclick = () => {
+                window.location.href = 'castscreen://start';
+                setTimeout(checkAgentStatus, 1200);
+                setTimeout(checkAgentStatus, 2500);
+            };
+        }
+
+        if (toggleAirPlayBtn) {
+            toggleAirPlayBtn.onclick = async () => {
+                if (!agentReady) {
+                    checkAgentStatus();
+                    return;
+                }
+                if (airplayActive) {
+                    await stopAirPlayOnAgent();
+                } else {
+                    iosPresent = true;
+                    await startAirPlayOnAgent();
+                }
+                checkAgentStatus();
+            };
+        }
+
         // ================= AIRPLAY WEBCODECS VIDEO DECODER (PC HOST) =================
         async function startAirPlayWebVideo() {
-            if (!isHost || airplayStarted || !iosPresent) return;
+            if (!isHost || airplayStarted) return;
             airplayStarted = true;
             const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
             
@@ -706,7 +761,7 @@
         }
 
         async function startAirPlayOnAgent() {
-            if (!isHost || !agentReady || !iosPresent) return;
+            if (!isHost || !agentReady) return;
             try {
                 if (!agentToken) {
                     const st = await agent('/airplay/status');
@@ -721,6 +776,7 @@
                     },
                     body: JSON.stringify({ roomId: code, resolution: '1920x1080', fps: 60, sharpen: 0 })
                 });
+                airplayActive = true;
                 checkAgentStatus();
                 startAirPlayWebVideo();
             } catch (e) {
@@ -736,6 +792,7 @@
                     headers: agentToken ? { 'X-CastScreen-Agent-Token': agentToken } : {}
                 });
             } catch (_) {}
+            airplayActive = false;
             if (canvas) canvas.hidden = true;
             if (video) video.hidden = false;
             checkAgentStatus();
@@ -755,7 +812,6 @@
         }
 
         function connectPlatformSignaling() {
-            // 1. Try WebSocket (Works on Cloudflare)
             try {
                 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const role = isHost ? 'host' : 'client';
@@ -774,7 +830,6 @@
                 ws.addEventListener('error', () => { platformSocket = null; });
             } catch (_) {}
 
-            // 2. HTTP Long-Poll Signaling (Works on Local Python Server and Cloudflare)
             if (isHost) {
                 let since = 0;
                 const pollHttp = async () => {
@@ -844,7 +899,7 @@
             installHostIOSWatchdog();
             agentPollTimer = setInterval(() => {
                 checkAgentStatus();
-                if (iosPresent && !airplayStarted) startAirPlayWebVideo();
+                if ((iosPresent || airplayActive) && !airplayStarted) startAirPlayWebVideo();
             }, 4000);
         } else {
             hostView.style.display = 'none';

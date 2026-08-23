@@ -31,6 +31,9 @@ Name: "{autodesktop}\Cast Screen AirPlay Agent Guide"; Filename: "{app}\AIRPLAY_
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "CastScreenAirPlayAgent"; ValueData: "\"{app}\{#AppExeName}\""; Flags: uninsdeletevalue
+Root: HKCR; Subkey: "castscreen"; ValueType: string; ValueName: ""; ValueData: "URL:CastScreen Protocol"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "castscreen"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey
+Root: HKCR; Subkey: "castscreen\shell\open\command"; ValueType: string; ValueName: ""; ValueData: "\"{app}\{#AppExeName}\""; Flags: uninsdeletekey
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Khởi động Cast Screen AirPlay Agent"; Flags: nowait postinstall skipifsilent
