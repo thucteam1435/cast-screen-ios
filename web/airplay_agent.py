@@ -68,9 +68,16 @@ airplay.on_client_connected = _on_connected
 airplay.on_client_disconnected = _on_disconnected
 
 
+def _touch_lease_locked():
+    state["lease_active"] = True
+    state["last_lease"] = time.time()
+
+
 def start_airplay():
     with state_lock:
         state["room_active"] = True
+        # Start the lease immediately. The Host room's /status polling keeps it alive.
+        _touch_lease_locked()
 
     if airplay.is_running:
         with state_lock:
@@ -90,6 +97,8 @@ def start_airplay():
         state["last_error"] = None if ok else "Không thể khởi động UxPlay/AirPlay"
         if not ok:
             state["room_active"] = False
+            state["lease_active"] = False
+            state["last_lease"] = 0.0
     return ok
 
 
@@ -107,14 +116,16 @@ def stop_airplay(clear_room=True):
             state["last_event"] = time.time()
             if clear_room:
                 state["room_active"] = False
+                state["lease_active"] = False
+                state["last_lease"] = 0.0
 
 
 def touch_lease():
     with state_lock:
-        state["lease_active"] = True
-        state["last_lease"] = time.time()
-        room_active = bool(state["room_active"])
-    return {"ok": True, "leaseTimeoutSeconds": LEASE_TIMEOUT_SECONDS, "roomActive": room_active}
+        if not state["room_active"]:
+            return {"ok": False, "leaseTimeoutSeconds": LEASE_TIMEOUT_SECONDS, "roomActive": False}
+        _touch_lease_locked()
+    return {"ok": True, "leaseTimeoutSeconds": LEASE_TIMEOUT_SECONDS, "roomActive": True}
 
 
 def revoke_lease():
@@ -132,7 +143,7 @@ def _lease_watchdog():
             active = bool(state["lease_active"])
             last = float(state["last_lease"] or 0.0)
         if active and last and time.time() - last > LEASE_TIMEOUT_SECONDS:
-            print("[CastScreen AirPlay Agent] Host web lease expired; stopping AirPlay and mDNS advertisement.")
+            print("[CastScreen AirPlay Agent] Host room heartbeat expired; stopping AirPlay and mDNS advertisement.")
             revoke_lease()
 
 
@@ -145,7 +156,6 @@ def authorize(allow: bool):
         if not allow:
             state["denied_until"] = time.time() + DENY_COOLDOWN_SECONDS
     if not allow and connected:
-        # Restart only while the Host room lease is still alive.
         with state_lock:
             room_active = bool(state["room_active"])
         stop_airplay(clear_room=False)
@@ -157,7 +167,7 @@ def authorize(allow: bool):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CastScreenAirPlayAgent/1.5"
+    server_version = "CastScreenAirPlayAgent/1.6"
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -189,6 +199,11 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/airplay/status":
             with state_lock:
+                # The Host room already polls /airplay/status. Treat that poll as
+                # the room heartbeat so closing the page automatically expires
+                # the AirPlay receiver without requiring page-unload reliability.
+                if state["room_active"]:
+                    _touch_lease_locked()
                 payload = dict(state)
             payload["token"] = agent_token
             payload["port"] = PORT
@@ -197,7 +212,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, payload)
             return
         if parsed.path == "/health":
-            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.5"})
+            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.6"})
             return
         self._json(404, {"ok": False, "error": "not-found"})
 
@@ -237,7 +252,7 @@ def main():
     print("CAST SCREEN PRO — LOCAL AIRPLAY AGENT")
     print(f"Control API: http://{HOST}:{PORT}")
     print("AirPlay + mDNS: starts only while a Cast Screen Host room is active")
-    print("Host lease timeout: %ss" % LEASE_TIMEOUT_SECONDS)
+    print("Room heartbeat timeout: %ss" % LEASE_TIMEOUT_SECONDS)
     print("When the room closes or the browser disappears, UxPlay and mDNS stop automatically.")
     print("Packaged mode: no Python is required on the user's PC.")
     print("=" * 64)
