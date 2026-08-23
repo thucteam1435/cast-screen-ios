@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'web/airplay_agent.py'
+      - 'web/airplay_media.py'
       - 'web/AIRPLAY_AGENT_GUIDE.md'
       - 'web/AIRPLAY_AGENT_PRIVACY.md'
       - 'web/DOWNLOAD_AIRPLAY_AGENT.md'
