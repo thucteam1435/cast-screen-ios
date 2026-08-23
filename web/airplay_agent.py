@@ -113,12 +113,13 @@ def authorize(allow: bool):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CastScreenAirPlayAgent/1.2"
+    server_version = "CastScreenAirPlayAgent/1.3"
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-CastScreen-Agent-Token")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
 
     def _json(self, status, payload):
@@ -151,7 +152,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, payload)
             return
         if parsed.path == "/health":
-            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.2"})
+            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.3"})
             return
         self._json(404, {"ok": False, "error": "not-found"})
 
