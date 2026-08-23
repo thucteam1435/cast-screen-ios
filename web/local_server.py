@@ -48,6 +48,19 @@ class CastScreenWebHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=WEB_DIR, **kwargs)
 
+    def translate_path(self, path):
+        # Clean URL rewrites matching Cloudflare Worker
+        clean_path = path.split('?', 1)[0].split('#', 1)[0]
+        if clean_path in ('', '/'):
+            path = '/home.html'
+        elif clean_path in ('/join', '/join.html'):
+            path = '/join.html'
+        elif clean_path in ('/room', '/room.html', '/room_airplay.html', '/room_v5.html', '/room_v6.html'):
+            path = '/room_v6.html'
+        elif clean_path == '/home':
+            path = '/home.html'
+        return super().translate_path(path)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         
@@ -81,8 +94,17 @@ class CastScreenWebHandler(SimpleHTTPRequestHandler):
                 pass
             return
 
+        # 2. Rewrite clean routes
+        if parsed.path in ('', '/'):
+            self.path = '/home.html' + (('?' + parsed.query) if parsed.query else '')
+        elif parsed.path in ('/join', '/join.html'):
+            self.path = '/join.html' + (('?' + parsed.query) if parsed.query else '')
+        elif parsed.path in ('/room', '/room.html', '/room_airplay.html', '/room_v5.html'):
+            self.path = '/room_v6.html' + (('?' + parsed.query) if parsed.query else '')
+
         # Fallback to standard static file serving
         return super().do_GET()
+
 
     def do_POST(self):
         parsed = urlparse(self.path)
