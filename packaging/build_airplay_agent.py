@@ -11,7 +11,11 @@ def main():
     if not shutil.which("pyinstaller"):
         raise SystemExit("PyInstaller is required. Install with: python -m pip install pyinstaller")
 
-    os.makedirs(os.path.dirname(DIST), exist_ok=True)
+    dist_root = os.path.dirname(DIST)
+    os.makedirs(dist_root, exist_ok=True)
+    if os.path.exists(DIST):
+        shutil.rmtree(DIST)
+
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean", "--onedir", "--windowed",
@@ -34,6 +38,7 @@ def main():
     docs = [
         os.path.join(ROOT, "web", "AIRPLAY_AGENT_GUIDE.md"),
         os.path.join(ROOT, "web", "AIRPLAY_AGENT_PRIVACY.md"),
+        os.path.join(ROOT, "web", "DOWNLOAD_AIRPLAY_AGENT.md"),
     ]
     for doc in docs:
         if os.path.exists(doc):
