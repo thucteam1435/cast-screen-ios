@@ -4,28 +4,27 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#050914"><title>Cài Cast Screen AirPlay Agent</title>
 <style>
-body{margin:0;min-height:100vh;background:#050914;color:#f8fafc;font:16px system-ui,-apple-system,Segoe UI,sans-serif;display:grid;place-items:center}
-.card{width:min(680px,92vw);padding:30px;border:1px solid #ffffff1a;border-radius:24px;background:#0b1220;box-shadow:0 30px 90px #0008}
-.muted{color:#94a3b8;line-height:1.65}.btn{display:inline-block;margin-top:16px;padding:14px 18px;border-radius:12px;text-decoration:none;font-weight:900}
-.primary{background:linear-gradient(135deg,#22d3ee,#4f8cff);color:#031018}.ghost{border:1px solid #ffffff1a;color:#fff;margin-left:8px}
-.warn{margin-top:18px;padding:14px;border-radius:14px;border:1px solid #fbbf2430;background:#fbbf2408;color:#fde68a;line-height:1.55}
-.steps{margin-top:20px;display:grid;gap:10px}.step{padding:12px 14px;border-radius:12px;background:#ffffff06;border:1px solid #ffffff12}
-.small{font-size:12px;color:#64748b;margin-top:18px}
+body{margin:0;min-height:100vh;background:#050914;color:#f8fafc;font:16px system-ui,-apple-system,Segoe UI,sans-serif;display:grid;place-items:center}.card{width:min(680px,92vw);padding:30px;border:1px solid #ffffff1a;border-radius:24px;background:#0b1220;box-shadow:0 30px 90px #0008}.muted{color:#94a3b8;line-height:1.65}.btn{display:inline-block;margin-top:16px;padding:14px 18px;border-radius:12px;text-decoration:none;font-weight:900}.primary{background:linear-gradient(135deg,#22d3ee,#4f8cff);color:#031018}.ghost{border:1px solid #ffffff1a;color:#fff;margin-left:8px}.warn{margin-top:18px;padding:14px;border-radius:14px;border:1px solid #fbbf2430;background:#fbbf2408;color:#fde68a;line-height:1.55}.steps{margin-top:20px;display:grid;gap:10px}.step{padding:12px 14px;border-radius:12px;background:#ffffff06;border:1px solid #ffffff12}.small{font-size:12px;color:#64748b;margin-top:18px}.ok{margin-top:14px;color:#a7f3d0;font-weight:800}
 </style>
 </head>
 <body>
 <main class="card">
 <div style="font-size:12px;color:#22d3ee;font-weight:900;letter-spacing:.12em">CAST SCREEN PRO</div>
-<h1>Cài Cast Screen AirPlay Agent</h1>
+<h1>Đang tải Cast Screen AirPlay Agent…</h1>
 <p class="muted">Agent là thành phần Windows nhỏ chạy nền để PC Host nhận AirPlay trực tiếp từ iPhone trong mạng LAN. Bạn không cần Python và hình/tiếng AirPlay không đi qua Cloudflare.</p>
 <div class="steps">
-<div class="step"><b>1.</b> Bấm <b>TẢI VÀ CÀI AGENT</b>. File cài Windows sẽ được tải trực tiếp.</div>
-<div class="step"><b>2.</b> Mở file <b>CastScreenAirPlayAgentSetup.exe</b> và cài một lần.</div>
-<div class="step"><b>3.</b> Agent tự chạy nền cùng Windows. Quay lại phòng Cast Screen để nhận AirPlay.</div>
+<div class="step"><b>1.</b> File cài Windows sẽ được tải trực tiếp.</div>
+<div class="step"><b>2.</b> Mở <b>CastScreenAirPlayAgentSetup.exe</b> sau khi tải xong.</div>
+<div class="step"><b>3.</b> Cài một lần. Agent tự chạy nền cùng Windows.</div>
 </div>
-<div class="warn"><b>Về cảnh báo Windows:</b> đây là bộ cài Windows của Cast Screen AirPlay Agent. Vì bản phát hành chưa có chứng thư code-signing, SmartScreen có thể hiển thị cảnh báo cho file mới. Tài liệu nguồn và SHA-256 được phát hành cùng bản cài.</div>
-<a class="btn primary" href="https://github.com/thucteam1435/cast-screen-ios/releases/download/agent-latest/CastScreenAirPlayAgentSetup.exe">⬇ TẢI VÀ CÀI AGENT</a>
+<div class="warn"><b>Lưu ý:</b> Bản phát hành hiện chưa có chứng thư code-signing nên Windows SmartScreen có thể cảnh báo file mới. Mã nguồn, bản build và SHA-256 được công khai trong dự án.</div>
+<a id="download" class="btn primary" href="https://github.com/thucteam1435/cast-screen-ios/releases/download/agent-latest/CastScreenAirPlayAgentSetup.exe">⬇ TẢI VÀ CÀI AGENT</a>
 <a class="btn ghost" href="home.html">Quay lại Cast Screen</a>
-<p class="small">Bản tải trực tiếp ổn định: CastScreenAirPlayAgentSetup.exe · Nguồn mã: github.com/thucteam1435/cast-screen-ios</p>
+<p id="ok" class="ok"></p>
+<p class="small">Tên file: CastScreenAirPlayAgentSetup.exe · Không cần Python.</p>
 </main>
+<script>
+const url=document.getElementById('download').href;
+window.addEventListener('load',()=>{const a=document.createElement('a');a.href=url;a.download='CastScreenAirPlayAgentSetup.exe';document.body.appendChild(a);try{a.click();document.getElementById('ok').textContent='File cài đã được yêu cầu tải. Nếu trình duyệt chặn tải tự động, hãy bấm nút TẢI VÀ CÀI AGENT.'}catch(_){}});
+</script>
 </body></html>
