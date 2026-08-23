@@ -531,7 +531,7 @@
     <!-- Core Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-    <script src="js/webrtc_manager.js?v=6.5"></script>
+    <script src="js/webrtc_manager.js?v=6.6"></script>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const q = new URLSearchParams(location.search);
@@ -578,6 +578,7 @@
         let airplayReader = null;
         let airplayStarted = false;
         let agentPollTimer = null;
+        let httpPollTimer = null;
 
         function setStatus(t, ok = false, bad = false) {
             status.textContent = t;
@@ -587,9 +588,13 @@
         // ================= AGENT API =================
         const agentBases = ['http://127.0.0.1:8765', 'http://localhost:8765'];
         async function agent(path, opts = {}) {
+            const headers = { ...(opts.headers || {}) };
+            if (agentToken && !headers['X-CastScreen-Agent-Token']) {
+                headers['X-CastScreen-Agent-Token'] = agentToken;
+            }
             for (const base of agentBases) {
                 try {
-                    const r = await fetch(base + path, { ...opts, cache: 'no-store' });
+                    const r = await fetch(base + path, { ...opts, headers, cache: 'no-store' });
                     if (r.ok) return await r.json();
                 } catch (_) {}
             }
@@ -727,50 +732,71 @@
             checkAgentStatus();
         }
 
-        // ================= PLATFORM SIGNALING (iOS PRESENCE DETECTION) =================
+        // ================= DUAL SIGNALING (WebSocket Cloudflare + HTTP Local Server) =================
+        function handlePlatformSignal(d) {
+            if (!isHost || !d || d.type !== 'client-platform') return;
+            const platform = String(d.platform || '').toLowerCase();
+            lastIOSHeartbeat = Date.now();
+            const next = platform === 'ios';
+            if (next !== iosPresent) {
+                iosPresent = next;
+                if (iosPresent) startAirPlayOnAgent();
+                else stopAirPlayOnAgent();
+            }
+        }
+
         function connectPlatformSignaling() {
-            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const role = isHost ? 'host' : 'client';
-            const ws = new WebSocket(`${proto}//${location.host}/ws?room=${encodeURIComponent(code)}&role=${role}`);
-            platformSocket = ws;
+            // 1. Try WebSocket (Works on Cloudflare)
+            try {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const role = isHost ? 'host' : 'client';
+                const ws = new WebSocket(`${proto}//${location.host}/ws?room=${encodeURIComponent(code)}&role=${role}`);
+                platformSocket = ws;
 
-            ws.addEventListener('open', () => {
-                if (!isHost) sendPlatformHeartbeat();
-            });
+                ws.addEventListener('open', () => {
+                    if (!isHost) sendPlatformHeartbeat();
+                });
+                ws.addEventListener('message', e => {
+                    let d;
+                    try { d = JSON.parse(e.data); } catch (_) { return; }
+                    handlePlatformSignal(d);
+                });
+                ws.addEventListener('close', () => { platformSocket = null; });
+                ws.addEventListener('error', () => { platformSocket = null; });
+            } catch (_) {}
 
-            ws.addEventListener('message', e => {
-                if (!isHost) return;
-                let d;
-                try { d = JSON.parse(e.data); } catch (_) { return; }
-                if (d?.type !== 'client-platform') return;
-
-                const platform = String(d.platform || '').toLowerCase();
-                lastIOSHeartbeat = Date.now();
-                const next = platform === 'ios';
-                if (next !== iosPresent) {
-                    iosPresent = next;
-                    if (iosPresent) {
-                        startAirPlayOnAgent();
-                    } else {
-                        stopAirPlayOnAgent();
-                    }
-                }
-            });
-
-            ws.addEventListener('close', () => {
-                platformSocket = null;
-                if (platformTimer) { clearInterval(platformTimer); platformTimer = null; }
-                if (isHost && iosPresent) {
-                    iosPresent = false;
-                    stopAirPlayOnAgent();
-                }
-            });
+            // 2. HTTP Long-Poll Signaling (Works on Local Python Server and Cloudflare)
+            if (isHost) {
+                let since = 0;
+                const pollHttp = async () => {
+                    try {
+                        const r = await fetch(`/signal/poll?room=${encodeURIComponent(code)}&role=host&since=${since}`);
+                        if (r.ok) {
+                            const list = await r.json();
+                            for (const item of list) {
+                                if (item.ts > since) since = item.ts;
+                                handlePlatformSignal(item.data || item);
+                            }
+                        }
+                    } catch (_) {}
+                };
+                httpPollTimer = setInterval(pollHttp, 1500);
+                pollHttp();
+            }
         }
 
         function sendPlatformHeartbeat() {
-            if (isHost || !platformSocket || platformSocket.readyState !== WebSocket.OPEN) return;
+            if (isHost) return;
             const platform = isIOS ? 'ios' : 'other';
-            platformSocket.send(JSON.stringify({ type: 'client-platform', platform, roomId: code, t: Date.now() }));
+            const msg = { type: 'client-platform', platform, roomId: code, t: Date.now() };
+            if (platformSocket && platformSocket.readyState === WebSocket.OPEN) {
+                try { platformSocket.send(JSON.stringify(msg)); } catch (_) {}
+            }
+            fetch('/signal/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomId: code, from: 'client', ...msg })
+            }).catch(() => {});
         }
 
         function installHostIOSWatchdog() {
@@ -810,12 +836,13 @@
             agentPollTimer = setInterval(() => {
                 checkAgentStatus();
                 if (iosPresent && !airplayStarted) startAirPlayWebVideo();
-            }, 5000);
+            }, 4000);
         } else {
             hostView.style.display = 'none';
             joinView.style.display = 'flex';
             clearInterval(platformTimer);
             platformTimer = setInterval(sendPlatformHeartbeat, 2000);
+            sendPlatformHeartbeat();
         }
 
         connectPlatformSignaling();
@@ -930,6 +957,7 @@
             if (isHost) {
                 await stopAirPlayOnAgent();
                 if (agentPollTimer) clearInterval(agentPollTimer);
+                if (httpPollTimer) clearInterval(httpPollTimer);
             } else {
                 await stopSharing();
             }
