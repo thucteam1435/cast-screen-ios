@@ -16,6 +16,7 @@ from engine.airplay_server import AirPlayServer
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("CASTSCREEN_AIRPLAY_PORT", "8765"))
 DENY_COOLDOWN_SECONDS = 12
+LEASE_TIMEOUT_SECONDS = 7
 
 state_lock = threading.Lock()
 state = {
@@ -27,6 +28,8 @@ state = {
     "last_event": 0.0,
     "last_error": None,
     "denied_until": 0.0,
+    "lease_active": False,
+    "last_lease": 0.0,
 }
 agent_token = secrets.token_urlsafe(24)
 airplay = AirPlayServer()
@@ -96,6 +99,32 @@ def stop_airplay():
             state["last_event"] = time.time()
 
 
+def touch_lease():
+    with state_lock:
+        state["lease_active"] = True
+        state["last_lease"] = time.time()
+    return {"ok": True, "leaseTimeoutSeconds": LEASE_TIMEOUT_SECONDS}
+
+
+def revoke_lease():
+    with state_lock:
+        state["lease_active"] = False
+        state["last_lease"] = 0.0
+    stop_airplay()
+    return {"ok": True}
+
+
+def _lease_watchdog():
+    while True:
+        time.sleep(1.0)
+        with state_lock:
+            active = bool(state["lease_active"])
+            last = float(state["last_lease"] or 0.0)
+        if active and last and time.time() - last > LEASE_TIMEOUT_SECONDS:
+            print("[CastScreen AirPlay Agent] Host web lease expired; stopping AirPlay receiver.")
+            revoke_lease()
+
+
 def authorize(allow: bool):
     with state_lock:
         connected = bool(state["airplay_connected"])
@@ -113,7 +142,7 @@ def authorize(allow: bool):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CastScreenAirPlayAgent/1.3"
+    server_version = "CastScreenAirPlayAgent/1.4"
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -149,10 +178,11 @@ class Handler(BaseHTTPRequestHandler):
             payload["token"] = agent_token
             payload["port"] = PORT
             payload["host"] = HOST
+            payload["leaseTimeoutSeconds"] = LEASE_TIMEOUT_SECONDS
             self._json(200, payload)
             return
         if parsed.path == "/health":
-            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.3"})
+            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.4"})
             return
         self._json(404, {"ok": False, "error": "not-found"})
 
@@ -165,8 +195,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": start_airplay()})
             return
         if parsed.path == "/airplay/stop":
-            stop_airplay()
-            self._json(200, {"ok": True})
+            self._json(200, revoke_lease())
+            return
+        if parsed.path == "/airplay/lease":
+            self._json(200, touch_lease())
             return
         if parsed.path == "/airplay/authorize":
             length = int(self.headers.get("Content-Length", "0") or 0)
@@ -184,11 +216,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    threading.Thread(target=_lease_watchdog, daemon=True).start()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print("=" * 64)
     print("CAST SCREEN PRO — LOCAL AIRPLAY AGENT")
     print(f"Control API: http://{HOST}:{PORT}")
     print("AirPlay receiver: starts only while a Cast Screen Host room is active")
+    print("Host lease timeout: %ss" % LEASE_TIMEOUT_SECONDS)
     print("Packaged mode: no Python is required on the user's PC.")
     print("=" * 64)
     try:
@@ -196,7 +230,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        stop_airplay()
+        revoke_lease()
         server.server_close()
 
 
