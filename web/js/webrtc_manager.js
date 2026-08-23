@@ -1,13 +1,16 @@
 /**
- * Bidirectional WebRTC manager for Cast Screen Web.
+ * LAN-first WebRTC manager for Cast Screen Web.
  *
- * Two machines can open the same room and both can send/receive screen streams.
- * A deterministic room hub peer is used only for discovery; media stays P2P.
- * No WebSocket /signal backend is required for the web-to-web path.
+ * Room owner = authoritative host. The host owns the room lifetime.
+ * Joining clients never promote themselves to host.
+ * PeerJS is used only for the initial signaling/discovery handshake.
+ * Media is LAN-only: no STUN/TURN/relay candidates are configured.
+ * Therefore the actual audio/video path must use direct host candidates.
  */
 class WebRTCManager {
     constructor(options = {}) {
-        this.role = options.role || 'peer';
+        this.role = options.role || 'client';
+        this.isHost = options.isHost === true || this.role === 'host';
         this.roomId = String(options.roomId || 'default').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'default';
         this.onStream = options.onStream || null;
         this.onStatusChange = options.onStatusChange || null;
@@ -26,31 +29,33 @@ class WebRTCManager {
         this.retryTimer = null;
         this._closed = false;
         this._signalingReady = false;
-        this._lastFramesDecoded = 0;
-        this._lastStatsTimestamp = 0;
 
+        // IMPORTANT: LAN mode. No STUN/TURN means no cloud relay path.
+        // PeerJS remains only the signaling/discovery layer.
         this.rtcConfig = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:global.stun.twilio.com:3478' }
-            ],
-            sdpSemantics: 'unified-plan'
+            iceServers: [],
+            iceTransportPolicy: 'all',
+            sdpSemantics: 'unified-plan',
+            iceCandidatePoolSize: 0
         };
     }
 
     get hubId() {
-        return `castscreen-room-${this.roomId}-hub`;
+        return `castscreen-room-${this.roomId}-host`;
     }
 
     connectSignaling() {
         this._closed = false;
-        this._updateStatus('CONNECTING_SIGNALING', 'Đang tham gia phòng...');
-        this._createHubOrNode();
+        if (this.isHost) {
+            this._updateStatus('CONNECTING_SIGNALING', 'Đang tạo phòng LAN...');
+            this._createHost();
+        } else {
+            this._updateStatus('CONNECTING_SIGNALING', 'Đang tìm máy chủ LAN...');
+            this._createClient();
+        }
     }
 
-    _createHubOrNode() {
+    _createHost() {
         if (this._closed) return;
         this._destroyPeerOnly();
         const peer = new Peer(this.hubId, { config: this.rtcConfig, debug: 0 });
@@ -59,150 +64,133 @@ class WebRTCManager {
         peer.on('open', (id) => {
             this.peerId = id;
             this.isHub = true;
-            console.log('[PeerJS] Room hub active:', id);
-            this._bindHubHandlers();
-            this._updateStatus('SIGNALING_READY', 'Đang chờ máy thứ hai...');
+            console.log('[LAN] Host room active:', id);
+            this._bindHostHandlers();
+            this._updateStatus('SIGNALING_READY', 'Máy chủ LAN đang chờ thiết bị...');
             this._notifySignalingReady();
         });
 
+        peer.on('connection', (conn) => this._acceptHostConnection(conn));
+        peer.on('call', (call) => this._handleIncomingCall(call));
+
         peer.on('error', (err) => {
-            console.warn('[PeerJS] Hub error:', err?.type || err);
-            if (err && (err.type === 'unavailable-id' || err.type === 'id-taken')) {
-                this._becomeNode();
-            } else if (!this._closed) {
-                this._scheduleReconnect();
+            console.warn('[LAN] Host error:', err?.type || err);
+            if (!this._closed) {
+                this._updateStatus('FAILED', err?.type === 'unavailable-id' ? 'Mã phòng đã được sử dụng' : 'Lỗi máy chủ LAN');
             }
         });
 
         peer.on('disconnected', () => {
-            if (!this._closed) this._scheduleReconnect();
+            if (!this._closed) this._updateStatus('FAILED', 'Máy chủ LAN mất signaling');
         });
 
         peer.on('close', () => {
-            if (!this._closed) this._scheduleReconnect();
+            if (!this._closed) this._updateStatus('FAILED', 'Máy chủ LAN đã đóng');
         });
     }
 
-    _becomeNode() {
+    _createClient() {
         if (this._closed) return;
         this._destroyPeerOnly();
-
-        const nodeId = `castscreen-room-${this.roomId}-node-${Math.random().toString(36).slice(2, 10)}`;
+        const nodeId = `castscreen-room-${this.roomId}-client-${Math.random().toString(36).slice(2, 10)}`;
         const peer = new Peer(nodeId, { config: this.rtcConfig, debug: 0 });
         this.peer = peer;
         this.isHub = false;
 
         peer.on('open', (id) => {
             this.peerId = id;
-            console.log('[PeerJS] Node active:', id);
-            this._connectToHub();
+            console.log('[LAN] Client active:', id);
+            this._connectToHost();
         });
 
         peer.on('call', (call) => this._handleIncomingCall(call));
         peer.on('error', (err) => {
-            console.warn('[PeerJS] Node error:', err?.type || err);
-            if (!this._closed) this._scheduleReconnect();
+            console.warn('[LAN] Client error:', err?.type || err);
+            if (!this._closed) {
+                this._updateStatus('DISCONNECTED', 'Không tìm thấy máy chủ LAN');
+            }
         });
         peer.on('disconnected', () => {
-            if (!this._closed) this._scheduleReconnect();
+            if (!this._closed) this._updateStatus('DISCONNECTED', 'Mất kết nối máy chủ LAN');
         });
         peer.on('close', () => {
-            if (!this._closed) this._scheduleReconnect();
+            if (!this._closed) this._updateStatus('DISCONNECTED', 'Máy chủ LAN đã tắt');
         });
     }
 
-    _bindHubHandlers() {
-        this.peer.on('connection', (conn) => {
-            console.log('[PeerJS] Node joined:', conn.peer);
-            this._acceptHubConnection(conn);
-        });
-        this.peer.on('call', (call) => this._handleIncomingCall(call));
+    _bindHostHandlers() {
+        // Host accepts exactly one client for the current room.
+        // This matches the requested single host -> single peer projection model.
     }
 
-    _acceptHubConnection(conn) {
+    _acceptHostConnection(conn) {
         if (this.remotePeerId && this.remotePeerId !== conn.peer) {
             try { conn.close(); } catch (_) {}
             return;
         }
-
         this.hubConnection = conn;
         this.remotePeerId = conn.peer;
+
         conn.on('open', () => {
-            conn.send({ type: 'room-ready', peerId: this.peerId, roomId: this.roomId });
-            this._updateStatus('CONNECTED', 'Đã kết nối máy thứ hai');
+            conn.send({ type: 'host-ready', peerId: this.peerId, roomId: this.roomId });
+            this._updateStatus('CONNECTED', 'Thiết bị đã tham gia LAN');
             this._notifySignalingReady();
             this._callRemoteIfPossible();
         });
-        conn.on('data', (data) => {
-            if (data?.type === 'hello') {
-                this.remotePeerId = data.peerId || conn.peer;
-                this._updateStatus('CONNECTED', 'Đã kết nối máy thứ hai');
-                this._notifySignalingReady();
-                this._callRemoteIfPossible();
-            }
-        });
-        conn.on('close', () => this._handleRemoteGone());
-        conn.on('error', () => this._handleRemoteGone());
-
-        // The fixed hub peer is also the media endpoint.
-        if (this.localStream) this._callRemoteIfPossible();
+        conn.on('close', () => this._handleClientGone());
+        conn.on('error', () => this._handleClientGone());
     }
 
-    _connectToHub() {
+    _connectToHost() {
         if (!this.peer || this.peer.destroyed || this._closed) return;
-        console.log('[PeerJS] Connecting to room hub:', this.hubId);
+        console.log('[LAN] Connecting client to host:', this.hubId);
         const conn = this.peer.connect(this.hubId, { reliable: true, serialization: 'json' });
         this.hubConnection = conn;
 
         conn.on('open', () => {
-            console.log('[PeerJS] Connected to room hub');
             this.remotePeerId = this.hubId;
-            conn.send({ type: 'hello', peerId: this.peerId, roomId: this.roomId });
-            this._updateStatus('CONNECTED', 'Đã kết nối máy thứ hai');
+            conn.send({ type: 'client-hello', peerId: this.peerId, roomId: this.roomId });
+            this._updateStatus('CONNECTED', 'Đã kết nối máy chủ LAN');
             this._notifySignalingReady();
             this._callRemoteIfPossible();
         });
         conn.on('data', (data) => {
-            if (data?.type === 'room-ready') {
+            if (data?.type === 'host-ready') {
                 this.remotePeerId = data.peerId || this.hubId;
-                this._updateStatus('CONNECTED', 'Đã kết nối máy thứ hai');
+                this._updateStatus('CONNECTED', 'Đã kết nối máy chủ LAN');
                 this._notifySignalingReady();
                 this._callRemoteIfPossible();
             }
         });
-        conn.on('close', () => this._handleRemoteGone());
-        conn.on('error', () => this._handleRemoteGone());
+        conn.on('close', () => this._handleHostGone());
+        conn.on('error', () => this._handleHostGone());
     }
 
     _handleIncomingCall(call) {
-        console.log('[PeerJS] Incoming media call from:', call.peer);
+        console.log('[LAN] Incoming media call from:', call.peer);
         this.remotePeerId = call.peer;
         try {
-            // Answer with our stream when available. This makes the path genuinely bidirectional.
             call.answer(this.localStream || undefined);
         } catch (e) {
-            console.warn('[PeerJS] answer error:', e);
+            console.warn('[LAN] answer error:', e);
             try { call.answer(); } catch (_) {}
         }
 
         call.on('stream', (stream) => {
-            console.log('[PeerJS] Remote stream received');
             this.remoteStream = stream;
             this._bindRemoteStream(stream);
-            this._updateStatus('CONNECTED', 'Đang truyền màn hình');
+            this._updateStatus('CONNECTED', this.isHost ? 'Đang nhận màn hình qua LAN' : 'Đang nhận màn hình qua LAN');
             this._startStatsMonitoring();
         });
         call.on('close', () => {
             if (this.currentCall === call) this.currentCall = null;
         });
-        call.on('error', (err) => console.warn('[PeerJS] Media call error:', err));
+        call.on('error', (err) => console.warn('[LAN] Media call error:', err));
         this.currentCall = call;
     }
 
     _bindRemoteStream(stream) {
-        if (this.onStream) {
-            this.onStream(stream, stream.getVideoTracks()[0] || null);
-        }
+        if (this.onStream) this.onStream(stream, stream.getVideoTracks()[0] || null);
     }
 
     _callRemoteIfPossible() {
@@ -211,35 +199,30 @@ class WebRTCManager {
             try { this.currentCall.close(); } catch (_) {}
             this.currentCall = null;
         }
-
-        // If an existing call is alive, it already carries the current stream.
         if (this.currentCall) return;
 
         try {
-            console.log('[PeerJS] Calling remote peer:', this.remotePeerId);
-            const call = this.peer.call(this.remotePeerId, this.localStream, { metadata: { roomId: this.roomId } });
+            const call = this.peer.call(this.remotePeerId, this.localStream, { metadata: { roomId: this.roomId, lanOnly: true } });
             this.currentCall = call;
             call.on('stream', (stream) => {
                 this.remoteStream = stream;
                 this._bindRemoteStream(stream);
-                this._updateStatus('CONNECTED', 'Đang truyền màn hình');
+                this._updateStatus('CONNECTED', 'Đang truyền màn hình qua LAN');
                 this._startStatsMonitoring();
             });
             call.on('close', () => {
                 if (this.currentCall === call) this.currentCall = null;
-                if (!this._closed && this.remotePeerId && this.localStream) {
-                    setTimeout(() => this._callRemoteIfPossible(), 300);
-                }
             });
             call.on('error', (err) => {
-                console.warn('[PeerJS] Outgoing media call error:', err);
+                console.warn('[LAN] Outgoing media call error:', err);
                 if (!this._closed) {
                     this.currentCall = null;
-                    setTimeout(() => this._callRemoteIfPossible(), 800);
+                    this._updateStatus('FAILED', 'Không tạo được đường truyền LAN');
                 }
             });
         } catch (e) {
-            console.warn('[PeerJS] call() failed:', e);
+            console.warn('[LAN] call() failed:', e);
+            this._updateStatus('FAILED', 'Không tạo được đường truyền LAN');
         }
     }
 
@@ -252,7 +235,6 @@ class WebRTCManager {
                 if (this.localStream === stream) this.stopScreenCapture();
             };
         });
-        this._updateStatus(this.remotePeerId ? 'CONNECTED' : 'SIGNALING_READY', this.remotePeerId ? 'Đang phát màn hình' : 'Đang chờ máy thứ hai...');
         this._callRemoteIfPossible();
     }
 
@@ -266,31 +248,32 @@ class WebRTCManager {
             try { this.currentCall.close(); } catch (_) {}
             this.currentCall = null;
         }
-        if (this.remotePeerId) this._updateStatus('CONNECTED', 'Đã kết nối, chưa phát màn hình');
+        if (this.remotePeerId) this._updateStatus('CONNECTED', this.isHost ? 'Máy chủ LAN đang chờ...' : 'Đã kết nối máy chủ LAN');
     }
 
-    _handleRemoteGone() {
+    // Client MUST be kicked when host disappears.
+    _handleHostGone() {
+        if (this.isHost || this._closed) return;
+        this._closed = true;
         this.remotePeerId = '';
-        this._signalingReady = false;
         this._stopStatsMonitoring();
         if (this.currentCall) {
             try { this.currentCall.close(); } catch (_) {}
             this.currentCall = null;
         }
-        if (this.onStatusChange) {
-            this.onStatusChange('DISCONNECTED', 'Máy thứ hai đã ngắt kết nối');
-        }
-        if (!this._closed) {
-            setTimeout(() => this._createHubOrNode(), 500);
-        }
+        if (this.onStatusChange) this.onStatusChange('DISCONNECTED', 'Máy chủ LAN đã tắt — phòng đã đóng');
+        this._destroyPeerOnly();
     }
 
-    _scheduleReconnect() {
-        if (this._closed || this.retryTimer) return;
-        this.retryTimer = setTimeout(() => {
-            this.retryTimer = null;
-            this._createHubOrNode();
-        }, 1200);
+    _handleClientGone() {
+        if (!this.isHost || this._closed) return;
+        this.remotePeerId = '';
+        this._stopStatsMonitoring();
+        if (this.currentCall) {
+            try { this.currentCall.close(); } catch (_) {}
+            this.currentCall = null;
+        }
+        if (this.onStatusChange) this.onStatusChange('DISCONNECTED', 'Thiết bị đã rời phòng LAN');
     }
 
     _destroyPeerOnly() {
@@ -334,6 +317,8 @@ class WebRTCManager {
                 let rtt = 0;
                 let jitter = 0;
                 let decodeMs = 0;
+                let localType = '';
+                let remoteType = '';
 
                 stats.forEach(report => {
                     if (report.type === 'inbound-rtp' && (report.kind === 'video' || report.mediaType === 'video')) {
@@ -352,14 +337,30 @@ class WebRTCManager {
                             decodeMs = (report.totalDecodeTime / report.framesDecoded) * 1000;
                         }
                     }
-                    if (report.type === 'candidate-pair' && report.state === 'succeeded' && Number.isFinite(report.currentRoundTripTime)) {
-                        rtt = report.currentRoundTripTime * 1000;
+                    if (report.type === 'candidate-pair' && (report.state === 'succeeded' || report.state === 'in-progress')) {
+                        if (Number.isFinite(report.currentRoundTripTime)) rtt = report.currentRoundTripTime * 1000;
+                        if (report.localCandidateId) {
+                            const local = stats.get(report.localCandidateId);
+                            if (local) localType = local.candidateType || '';
+                        }
+                        if (report.remoteCandidateId) {
+                            const remote = stats.get(report.remoteCandidateId);
+                            if (remote) remoteType = remote.candidateType || '';
+                        }
                     }
                 });
 
-                // This is receiver-side pipeline latency only, not a fake glass-to-glass value.
                 const pipelineMs = Math.max(0, rtt + jitter + decodeMs);
-                if (this.onMetrics) this.onMetrics({ fps: Math.round(fps || 0), ping: Math.round(rtt || 0), pipelineMs: Math.round(pipelineMs) });
+                if (this.onMetrics) {
+                    this.onMetrics({
+                        fps: Math.round(fps || 0),
+                        ping: Math.round(rtt || 0),
+                        pipelineMs: Math.round(pipelineMs),
+                        localCandidateType: localType,
+                        remoteCandidateType: remoteType,
+                        lan: localType === 'host' && remoteType === 'host'
+                    });
+                }
             } catch (_) {}
         }, 500);
     }
