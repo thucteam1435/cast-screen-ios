@@ -1,5 +1,5 @@
 #define AppName "Cast Screen AirPlay Agent"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "Cast Screen"
 #define AppExeName "CastScreenAirPlayAgent.exe"
 
@@ -23,13 +23,14 @@ UninstallDisplayIcon={app}\{#AppExeName}
 Source: "..\dist\CastScreenAirPlayAgent\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 Source: "..\web\AIRPLAY_AGENT_GUIDE.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\web\AIRPLAY_AGENT_PRIVACY.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\web\DOWNLOAD_AIRPLAY_AGENT.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Cast Screen AirPlay Agent Guide"; Filename: "{app}\AIRPLAY_AGENT_GUIDE.md"
 Name: "{autodesktop}\Cast Screen AirPlay Agent Guide"; Filename: "{app}\AIRPLAY_AGENT_GUIDE.md"
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "CastScreenAirPlayAgent"; ValueData: "{app}\{#AppExeName}"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "CastScreenAirPlayAgent"; ValueData: "\"{app}\{#AppExeName}\""; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Khởi động Cast Screen AirPlay Agent"; Flags: nowait postinstall skipifsilent
