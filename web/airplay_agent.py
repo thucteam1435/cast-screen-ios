@@ -334,13 +334,13 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"ok": False, "error": "not-found"})
 
     def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        body = self.rfile.read(length) if length else b"{}"
         if not self._authorized():
             self._json(403, {"ok": False, "error": "forbidden"})
             return
         parsed = urlparse(self.path)
         if parsed.path == "/airplay/start":
-            length = int(self.headers.get("Content-Length", "0") or 0)
-            body = self.rfile.read(length) if length else b"{}"
             try:
                 data = json.loads(body.decode("utf-8"))
             except Exception:
@@ -354,8 +354,6 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, touch_lease())
             return
         if parsed.path == "/airplay/authorize":
-            length = int(self.headers.get("Content-Length", "0") or 0)
-            body = self.rfile.read(length) if length else b"{}"
             try:
                 data = json.loads(body.decode("utf-8"))
             except Exception:
