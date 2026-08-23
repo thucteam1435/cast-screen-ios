@@ -1,25 +1,322 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <title>Cast Screen Pro — LAN Mode</title>
-    <script>
-        (function () {
-            const p = new URLSearchParams(location.search);
-            const room = p.get('room');
-            const mode = p.get('mode');
-            const target = new URL('peer.html', location.href);
-            if (room) target.searchParams.set('room', room);
-            if (mode === 'host' || mode === 'client') target.searchParams.set('mode', mode);
-            location.replace(target.href);
-        })();
-    </script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Cast Screen Pro</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+    :root { --cs-cyan:#00e5ff; --cs-bg:#050914; --cs-card:rgba(11,18,32,.92); --cs-muted:#94a3b8; }
+    body { min-height:100vh; background:var(--cs-bg); }
+    .room-shell { max-width:1180px; margin:0 auto; padding:28px 18px 40px; }
+    .room-hero { text-align:center; padding:12px 0 24px; }
+    .room-hero h1 { margin:0 0 8px; font-size:30px; }
+    .room-hero p { margin:0; color:var(--cs-muted); }
+    .room-grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr); gap:18px; }
+    .room-card { background:var(--cs-card); border:1px solid rgba(148,163,184,.15); border-radius:18px; box-shadow:0 18px 50px rgba(0,0,0,.25); padding:20px; }
+    .room-card h2 { margin:0 0 12px; font-size:19px; }
+    .mode-pill { display:inline-flex; align-items:center; gap:8px; padding:7px 11px; border-radius:999px; font-size:12px; font-weight:800; background:rgba(0,229,255,.08); color:var(--cs-cyan); border:1px solid rgba(0,229,255,.18); }
+    .room-code { font-size:38px; line-height:1; letter-spacing:8px; font-weight:900; text-align:center; margin:18px 0 10px; color:#fff; }
+    .room-link { display:flex; gap:8px; }
+    .room-link input, .join-input { flex:1; min-width:0; padding:12px 13px; border-radius:11px; border:1px solid rgba(148,163,184,.2); background:#09111f; color:#fff; }
+    .btn { border:0; border-radius:11px; padding:12px 15px; font-weight:800; cursor:pointer; }
+    .btn-primary { background:linear-gradient(135deg,#00e5ff,#2578ff); color:#041017; }
+    .btn-danger { background:#f43f5e; color:#fff; }
+    .btn-ghost { background:rgba(148,163,184,.08); color:#e2e8f0; border:1px solid rgba(148,163,184,.15); }
+    .btn:disabled { opacity:.45; cursor:not-allowed; }
+    .qr-wrap { display:flex; justify-content:center; margin:10px 0 14px; }
+    .qr-box { background:#fff; padding:12px; border-radius:14px; display:inline-flex; }
+    .status-box { padding:12px 14px; border-radius:12px; background:rgba(148,163,184,.08); color:#cbd5e1; margin-bottom:14px; }
+    .status-box.ok { background:rgba(16,185,129,.1); color:#6ee7b7; border:1px solid rgba(16,185,129,.18); }
+    .status-box.bad { background:rgba(244,63,94,.1); color:#fda4af; border:1px solid rgba(244,63,94,.18); }
+    .video-stage { aspect-ratio:16/9; min-height:240px; background:#020617; border-radius:16px; overflow:hidden; position:relative; }
+    .video-stage video { width:100%; height:100%; object-fit:contain; display:block; background:#020617; }
+    .video-empty { position:absolute; inset:0; display:grid; place-items:center; padding:24px; text-align:center; color:var(--cs-muted); pointer-events:none; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:9px; margin-top:12px; }
+    .info-list { display:grid; gap:10px; margin-top:14px; }
+    .info-item { display:flex; justify-content:space-between; gap:16px; color:#cbd5e1; font-size:13px; }
+    .info-item strong { color:#fff; text-align:right; }
+    .join-block { border-top:1px solid rgba(148,163,184,.12); margin-top:20px; padding-top:18px; }
+    .join-row { display:flex; gap:8px; }
+    .hint { color:var(--cs-muted); font-size:12px; margin-top:9px; line-height:1.5; }
+    .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); opacity:0; pointer-events:none; transition:.2s; background:#0b1220; color:#fff; border:1px solid rgba(148,163,184,.22); padding:12px 15px; border-radius:12px; box-shadow:0 15px 35px rgba(0,0,0,.3); z-index:9999; }
+    .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+    @media(max-width:850px){ .room-grid{grid-template-columns:1fr;} .room-hero h1{font-size:25px;} .room-code{font-size:32px;letter-spacing:5px;} }
+</style>
 </head>
-<body style="background:#020617;color:#fff;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh">
-    <div>Đang mở Cast Screen LAN…</div>
+<body>
+<header class="navbar">
+    <div class="nav-brand">
+        <div class="brand-logo-glow">
+            <svg class="nav-logo-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <span class="brand-title">Cast Screen <span class="brand-sub">PRO</span></span>
+        <span class="badge-tag">LAN</span>
+    </div>
+    <div class="nav-status"><div class="status-pill" id="topStatus"><span class="status-indicator"></span><span id="topStatusText" class="status-text">KHỞI ĐỘNG</span></div></div>
+</header>
+
+<main class="room-shell">
+    <div class="room-hero">
+        <div class="mode-pill" id="modePill">● ĐANG TẠO PHÒNG</div>
+        <h1 id="pageTitle">Tạo phòng chiếu</h1>
+        <p id="pageSubtitle">Phòng này chỉ cho phép tối đa 2 thiết bị và media sẽ ưu tiên đi trực tiếp qua LAN.</p>
+    </div>
+
+    <section class="room-grid">
+        <div class="room-card">
+            <div class="status-box" id="statusBox">Đang khởi tạo...</div>
+            <div class="video-stage">
+                <video id="remoteVideo" autoplay playsinline muted></video>
+                <div id="videoEmpty" class="video-empty">Chưa có thiết bị thứ hai chia sẻ màn hình.</div>
+            </div>
+            <div class="toolbar">
+                <button class="btn btn-primary" id="shareBtn">📺 Chia sẻ màn hình</button>
+                <button class="btn btn-ghost" id="audioBtn" disabled>🔊 Bật âm thanh</button>
+                <button class="btn btn-danger" id="leaveBtn">Thoát phòng</button>
+            </div>
+            <div class="info-list">
+                <div class="info-item"><span>Phòng</span><strong id="roomInfo">—</strong></div>
+                <div class="info-item"><span>Thiết bị trong phòng</span><strong id="deviceInfo">1 / 2</strong></div>
+                <div class="info-item"><span>Đường truyền</span><strong id="pathInfo">Đang kiểm tra</strong></div>
+                <div class="info-item"><span>FPS nhận</span><strong id="fpsInfo">—</strong></div>
+                <div class="info-item"><span>RTT</span><strong id="rttInfo">—</strong></div>
+            </div>
+        </div>
+
+        <aside class="room-card" id="hostCard">
+            <h2>Chia sẻ phòng này</h2>
+            <div id="hostOnlyContent">
+                <div style="color:#cbd5e1;font-size:13px;">Gửi QR hoặc link này cho thiết bị thứ hai.</div>
+                <div class="room-code" id="roomCode">------</div>
+                <div class="qr-wrap"><div class="qr-box" id="qrCode"></div></div>
+                <div class="room-link">
+                    <input id="shareLink" readonly>
+                    <button class="btn btn-primary" id="copyLinkBtn">Copy</button>
+                </div>
+                <div class="hint">Thiết bị thứ hai mở link này sẽ tự tham gia phòng. Khi host tắt máy/tab hoặc thoát phòng, client sẽ bị đá ra và phòng đóng.</div>
+            </div>
+            <div class="join-block">
+                <h2>Tham gia phòng khác</h2>
+                <div class="join-row">
+                    <input class="join-input" id="joinInput" inputmode="numeric" maxlength="40" placeholder="Nhập mã phòng">
+                    <button class="btn btn-ghost" id="joinBtn">Tham gia</button>
+                </div>
+                <div class="hint">Bạn chỉ bị chuyển sang phòng mới sau khi bấm “Tham gia”; đang nhập mã sẽ không bị đá khỏi trang.</div>
+            </div>
+        </aside>
+    </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="js/webrtc_manager.js?v=3.7"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const qs = new URLSearchParams(location.search);
+    const sharedRoom = (qs.get('room') || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+    const hostRoom = (qs.get('host') || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+
+    const topStatus = document.getElementById('topStatus');
+    const topStatusText = document.getElementById('topStatusText');
+    const statusBox = document.getElementById('statusBox');
+    const pageTitle = document.getElementById('pageTitle');
+    const pageSubtitle = document.getElementById('pageSubtitle');
+    const modePill = document.getElementById('modePill');
+    const roomCode = document.getElementById('roomCode');
+    const roomInfo = document.getElementById('roomInfo');
+    const deviceInfo = document.getElementById('deviceInfo');
+    const pathInfo = document.getElementById('pathInfo');
+    const fpsInfo = document.getElementById('fpsInfo');
+    const rttInfo = document.getElementById('rttInfo');
+    const video = document.getElementById('remoteVideo');
+    const videoEmpty = document.getElementById('videoEmpty');
+    const shareBtn = document.getElementById('shareBtn');
+    const leaveBtn = document.getElementById('leaveBtn');
+    const audioBtn = document.getElementById('audioBtn');
+    const shareLink = document.getElementById('shareLink');
+    const copyLinkBtn = document.getElementById('copyLinkBtn');
+    const joinInput = document.getElementById('joinInput');
+    const joinBtn = document.getElementById('joinBtn');
+    const hostOnlyContent = document.getElementById('hostOnlyContent');
+    const toast = document.getElementById('toast');
+
+    let manager = null;
+    let localShared = false;
+    let toastTimer = null;
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+    }
+
+    function goHome(message) {
+        if (manager) {
+            try { manager.close(); } catch (_) {}
+            manager = null;
+        }
+        const clean = `${location.origin}${location.pathname}`;
+        history.replaceState({}, '', clean);
+        showToast(message);
+        setTimeout(() => location.reload(), 700);
+    }
+
+    function updateStatus(code, label) {
+        topStatus.classList.toggle('connected', code === 'CONNECTED');
+        topStatus.classList.toggle('error', ['FAILED','ROOM_NOT_FOUND','ROOM_FULL','HOST_GONE'].includes(code));
+        topStatusText.textContent = label || code;
+        statusBox.className = 'status-box' + (code === 'CONNECTED' ? ' ok' : (['FAILED','ROOM_NOT_FOUND','ROOM_FULL','HOST_GONE'].includes(code) ? ' bad' : ''));
+        statusBox.textContent = label || code;
+    }
+
+    function setRoomUrl(param, code) {
+        const u = new URL(location.href);
+        u.search = '';
+        u.searchParams.set(param, code);
+        return u.toString();
+    }
+
+    function renderHostUI(code) {
+        modePill.textContent = '● CHỦ PHÒNG';
+        pageTitle.textContent = 'Phòng chiếu của bạn';
+        pageSubtitle.textContent = 'Gửi QR hoặc link cho thiết bị thứ hai. Tối đa 2 thiết bị.';
+        roomCode.textContent = code;
+        roomInfo.textContent = code;
+        shareLink.value = setRoomUrl('room', code);
+        hostOnlyContent.style.display = 'block';
+        document.getElementById('hostCard').style.display = 'block';
+        if (window.QRCode) {
+            document.getElementById('qrCode').innerHTML = '';
+            new QRCode(document.getElementById('qrCode'), { text: shareLink.value, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M });
+        }
+    }
+
+    function renderClientUI(code) {
+        modePill.textContent = '● THIẾT BỊ THAM GIA';
+        pageTitle.textContent = 'Đang tham gia phòng';
+        pageSubtitle.textContent = 'Phòng tồn tại khi host còn kết nối. Tối đa 2 thiết bị.';
+        roomInfo.textContent = code;
+        hostOnlyContent.style.display = 'none';
+        document.getElementById('hostCard').style.display = 'none';
+        shareBtn.style.display = 'inline-block';
+    }
+
+    async function startShare() {
+        if (!manager || !manager.remotePeerId) {
+            showToast('Chưa có thiết bị thứ hai trong phòng.');
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:60,max:60}, cursor:'always' },
+                audio: false
+            });
+            await manager.startScreenCapture(stream);
+            localShared = true;
+            shareBtn.textContent = '⏹ Dừng chia sẻ';
+            shareBtn.classList.remove('btn-primary');
+            shareBtn.classList.add('btn-danger');
+            const track = stream.getVideoTracks()[0];
+            if (track) track.addEventListener('ended', stopShare, { once:true });
+        } catch (err) {
+            if (err.name !== 'NotAllowedError') showToast('Không thể chia sẻ màn hình.');
+        }
+    }
+
+    function stopShare() {
+        if (!manager || !localShared) return;
+        manager.stopScreenCapture();
+        localShared = false;
+        shareBtn.textContent = '📺 Chia sẻ màn hình';
+        shareBtn.classList.add('btn-primary');
+        shareBtn.classList.remove('btn-danger');
+    }
+
+    function leaveRoom() {
+        stopShare();
+        if (manager) { manager.close(); manager = null; }
+        const clean = `${location.origin}${location.pathname}`;
+        history.replaceState({}, '', clean);
+        location.reload();
+    }
+
+    function createHost(code) {
+        renderHostUI(code);
+        manager = new WebRTCManager({
+            role:'host', isHost:true, roomId:code,
+            onSignalingReady:() => { updateStatus('SIGNALING_READY','Phòng đã sẵn sàng — chờ thiết bị thứ hai'); },
+            onStream:(stream) => { video.srcObject = stream; video.play().catch(()=>{}); videoEmpty.style.display='none'; },
+            onStatusChange:(code2,label) => {
+                if (code2 === 'CONNECTED') deviceInfo.textContent = '2 / 2';
+                else if (code2 === 'DISCONNECTED') { deviceInfo.textContent='1 / 2'; video.srcObject=null; videoEmpty.style.display='grid'; stopShare(); }
+                updateStatus(code2,label);
+            },
+            onMetrics:(m) => {
+                if (m.fps) fpsInfo.textContent = `${m.fps} FPS`;
+                if (m.ping) rttInfo.textContent = `${m.ping} ms`;
+                pathInfo.textContent = m.lan ? 'LAN trực tiếp' : (m.localCandidateType || 'Đang kiểm tra');
+            }
+        });
+        manager.connectSignaling();
+        updateStatus('CONNECTING_SIGNALING','Đang tạo phòng...');
+    }
+
+    function joinRoom(code) {
+        renderClientUI(code);
+        manager = new WebRTCManager({
+            role:'client', isHost:false, roomId:code,
+            onSignalingReady:() => updateStatus('CONNECTED','Đã vào phòng'),
+            onStream:(stream) => { video.srcObject=stream; video.play().catch(()=>{}); videoEmpty.style.display='none'; },
+            onStatusChange:(code2,label) => {
+                if (code2 === 'CONNECTED') deviceInfo.textContent='2 / 2';
+                if (code2 === 'HOST_GONE' || code2 === 'ROOM_NOT_FOUND' || code2 === 'ROOM_FULL') {
+                    const msg = code2 === 'ROOM_NOT_FOUND' ? 'Phòng không tồn tại.' : (code2 === 'ROOM_FULL' ? 'Phòng đã đủ 2 thiết bị.' : 'Host đã rời phòng.');
+                    showToast(msg + ' Đang quay về trang chủ...');
+                    setTimeout(() => goHome(msg), 700);
+                    return;
+                }
+                if (code2 === 'DISCONNECTED') { deviceInfo.textContent='1 / 2'; video.srcObject=null; videoEmpty.style.display='grid'; stopShare(); }
+                updateStatus(code2,label);
+            },
+            onMetrics:(m) => {
+                if (m.fps) fpsInfo.textContent=`${m.fps} FPS`;
+                if (m.ping) rttInfo.textContent=`${m.ping} ms`;
+                pathInfo.textContent = m.lan ? 'LAN trực tiếp' : (m.localCandidateType || 'Đang kiểm tra');
+            }
+        });
+        manager.connectSignaling();
+        updateStatus('CONNECTING_SIGNALING','Đang kiểm tra phòng...');
+    }
+
+    shareBtn.addEventListener('click', () => localShared ? stopShare() : startShare());
+    leaveBtn.addEventListener('click', leaveRoom);
+    copyLinkBtn.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(shareLink.value); showToast('Đã copy link phòng.'); }
+        catch (_) { shareLink.select(); document.execCommand('copy'); showToast('Đã copy link phòng.'); }
+    });
+    joinBtn.addEventListener('click', () => {
+        const code = (joinInput.value || '').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40);
+        if (!code) return showToast('Nhập mã phòng trước.');
+        location.href = `${location.origin}${location.pathname}?room=${encodeURIComponent(code)}`;
+    });
+    joinInput.addEventListener('keydown', e => { if (e.key === 'Enter') joinBtn.click(); });
+
+    window.addEventListener('beforeunload', () => { try { manager?.close(); } catch (_) {} });
+    window.addEventListener('pagehide', () => { try { manager?.close(); } catch (_) {} });
+
+    // Root URL => automatically become host. ?host=... preserves host on refresh.
+    if (sharedRoom) {
+        joinRoom(sharedRoom);
+    } else {
+        const code = hostRoom || Math.floor(100000 + Math.random() * 900000).toString();
+        if (!hostRoom) history.replaceState({}, '', `${location.pathname}?host=${encodeURIComponent(code)}`);
+        createHost(code);
+    }
+});
+</script>
 </body>
 </html>
