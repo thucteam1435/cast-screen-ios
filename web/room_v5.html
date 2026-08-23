@@ -771,8 +771,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CastScreen-Agent-Token': agentToken,
-                        'X-CastScreen-iOS-Confirmed': 'true'
+                        'X-CastScreen-Agent-Token': agentToken
                     },
                     body: JSON.stringify({ roomId: code, resolution: '1920x1080', fps: 60, sharpen: 0 })
                 });
@@ -812,24 +811,28 @@
         }
 
         function connectPlatformSignaling() {
-            try {
-                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const role = isHost ? 'host' : 'client';
-                const ws = new WebSocket(`${proto}//${location.host}/ws?room=${encodeURIComponent(code)}&role=${role}`);
-                platformSocket = ws;
+            // Only try WebSocket if on Cloudflare / HTTPS
+            if (location.protocol === 'https:' || location.hostname.includes('workers.dev')) {
+                try {
+                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const role = isHost ? 'host' : 'client';
+                    const ws = new WebSocket(`${proto}//${location.host}/ws?room=${encodeURIComponent(code)}&role=${role}`);
+                    platformSocket = ws;
 
-                ws.addEventListener('open', () => {
-                    if (!isHost) sendPlatformHeartbeat();
-                });
-                ws.addEventListener('message', e => {
-                    let d;
-                    try { d = JSON.parse(e.data); } catch (_) { return; }
-                    handlePlatformSignal(d);
-                });
-                ws.addEventListener('close', () => { platformSocket = null; });
-                ws.addEventListener('error', () => { platformSocket = null; });
-            } catch (_) {}
+                    ws.addEventListener('open', () => {
+                        if (!isHost) sendPlatformHeartbeat();
+                    });
+                    ws.addEventListener('message', e => {
+                        let d;
+                        try { d = JSON.parse(e.data); } catch (_) { return; }
+                        handlePlatformSignal(d);
+                    });
+                    ws.addEventListener('close', () => { platformSocket = null; });
+                    ws.addEventListener('error', () => { platformSocket = null; });
+                } catch (_) {}
+            }
 
+            // HTTP Long-Poll Signaling (Local Python Server & Cloudflare fallback)
             if (isHost) {
                 let since = 0;
                 const pollHttp = async () => {
@@ -899,7 +902,6 @@
             installHostIOSWatchdog();
             agentPollTimer = setInterval(() => {
                 checkAgentStatus();
-                if ((iosPresent || airplayActive) && !airplayStarted) startAirPlayWebVideo();
             }, 4000);
         } else {
             hostView.style.display = 'none';

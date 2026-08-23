@@ -159,7 +159,7 @@ class CastScreenWebHandler(SimpleHTTPRequestHandler):
         """Handle CORS preflight — must respond immediately with 200 and Content-Length 0."""
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+        self.send_header("Access-Control-Allow-Headers", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Content-Length", "0")
         self.end_headers()
