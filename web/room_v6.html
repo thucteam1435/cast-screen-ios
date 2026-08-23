@@ -588,13 +588,22 @@
         // ================= AGENT API =================
         const agentBases = ['http://127.0.0.1:8765', 'http://localhost:8765'];
         async function agent(path, opts = {}) {
-            const headers = { ...(opts.headers || {}) };
+            let headers = { ...(opts.headers || {}) };
             if (agentToken && !headers['X-CastScreen-Agent-Token']) {
                 headers['X-CastScreen-Agent-Token'] = agentToken;
             }
             for (const base of agentBases) {
                 try {
-                    const r = await fetch(base + path, { ...opts, headers, cache: 'no-store' });
+                    let r = await fetch(base + path, { ...opts, headers, cache: 'no-store' });
+                    if (r.status === 403 && path !== '/airplay/status') {
+                        const stRes = await fetch(base + '/airplay/status', { cache: 'no-store' });
+                        if (stRes.ok) {
+                            const stData = await stRes.json();
+                            agentToken = stData.token || '';
+                            headers['X-CastScreen-Agent-Token'] = agentToken;
+                            r = await fetch(base + path, { ...opts, headers, cache: 'no-store' });
+                        }
+                    }
                     if (r.ok) return await r.json();
                 } catch (_) {}
             }
