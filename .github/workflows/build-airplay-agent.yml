@@ -1,0 +1,62 @@
+name: Build Cast Screen AirPlay Agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/airplay_agent.py'
+      - 'web/AIRPLAY_AGENT_GUIDE.md'
+      - 'web/AIRPLAY_AGENT_PRIVACY.md'
+      - 'engine/**'
+      - 'packaging/**'
+      - 'requirements.txt'
+      - '.github/workflows/build-airplay-agent.yml'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller psutil zeroconf
+          choco install innosetup -y --no-progress
+
+      - name: Build agent directory
+        shell: pwsh
+        run: python packaging/build_airplay_agent.py
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\CastScreenAirPlayAgent.iss
+
+      - name: Verify outputs
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist\installer\CastScreenAirPlayAgentSetup.exe")) { throw 'Installer not created' }
+          Get-Item "dist\installer\CastScreenAirPlayAgentSetup.exe" | Format-List FullName,Length
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CastScreen-AirPlay-Agent-Windows
+          path: dist/installer/CastScreenAirPlayAgentSetup.exe
+          if-no-files-found: error
+
+      - name: Upload portable agent artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CastScreen-AirPlay-Agent-Portable
+          path: dist/CastScreenAirPlayAgent/
+          if-no-files-found: error
