@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+    <title>Cast Screen Pro — P2P 2 chiều</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .peerbar { display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; padding:12px; }
+        .peerbar input { width:150px; padding:10px 12px; border-radius:10px; border:1px solid rgba(148,163,184,.25); background:#0b1220; color:#fff; text-align:center; font-weight:800; letter-spacing:2px; }
+        .peer-btn { border:0; border-radius:10px; padding:11px 16px; font-weight:800; cursor:pointer; }
+        .peer-btn.primary { background:#00e5ff; color:#041017; }
+        .peer-btn.stop { background:#f43f5e; color:#fff; }
+        .peer-info { color:#94a3b8; font-size:12px; text-align:center; margin:0 0 10px; }
+        .peer-video { width:100%; height:100%; object-fit:contain; background:#020617; }
+    </style>
+</head>
+<body>
+<header class="navbar">
+    <div class="nav-brand"><span class="brand-title">Cast Screen <span class="brand-sub">PRO</span></span><span class="badge-tag">P2P 2 CHIỀU</span></div>
+    <div class="nav-status"><div class="status-pill" id="statusBadge"><span class="status-indicator"></span><span id="statusText" class="status-text">ĐANG KHỞI ĐỘNG...</span></div></div>
+</header>
+
+<main class="app-container">
+    <section class="viewport-card">
+        <div class="video-stage-container" id="videoStage">
+            <video id="remoteVideo" class="peer-video" autoplay playsinline muted></video>
+            <canvas id="glCanvas"></canvas>
+            <div class="waiting-overlay" id="waitingOverlay">
+                <div class="waiting-icon">↔</div>
+                <h2 class="waiting-title">Sẵn sàng kết nối P2P</h2>
+                <p class="waiting-subtitle">Mở trang này trên máy thứ hai và nhập cùng mã phòng.</p>
+            </div>
+        </div>
+        <div class="peerbar">
+            <span>MÃ PHÒNG</span>
+            <input id="roomInput" maxlength="40" aria-label="Mã phòng">
+            <button id="joinBtn" class="peer-btn primary">THAM GIA PHÒNG</button>
+            <button id="shareBtn" class="peer-btn primary">CHIA SẺ MÀN HÌNH</button>
+            <button id="stopBtn" class="peer-btn stop" style="display:none">DỪNG CHIA SẺ</button>
+        </div>
+        <p class="peer-info">Hai máy đều có thể nhận và phát màn hình. Media đi trực tiếp WebRTC P2P sau khi tìm thấy nhau.</p>
+    </section>
+</main>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="js/video_renderer.js?v=3.5"></script>
+<script src="js/webrtc_manager.js?v=3.6"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(location.search);
+    let room = (params.get('room') || Math.floor(100000 + Math.random() * 900000).toString()).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40);
+    const roomInput = document.getElementById('roomInput');
+    roomInput.value = room;
+    history.replaceState({}, '', `${location.pathname}?room=${encodeURIComponent(room)}`);
+
+    const remoteVideo = document.getElementById('remoteVideo');
+    const glCanvas = document.getElementById('glCanvas');
+    const videoStage = document.getElementById('videoStage');
+    const waitingOverlay = document.getElementById('waitingOverlay');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusText = document.getElementById('statusText');
+    const joinBtn = document.getElementById('joinBtn');
+    const shareBtn = document.getElementById('shareBtn');
+    const stopBtn = document.getElementById('stopBtn');
+
+    const renderer = new VideoRenderer(glCanvas, remoteVideo);
+    let manager = null;
+
+    function setStatus(code, label) {
+        statusText.textContent = label || code;
+        statusBadge.classList.toggle('connected', code === 'CONNECTED');
+        statusBadge.classList.toggle('error', code === 'FAILED' || code === 'ICE_FAILED');
+        if (code === 'CONNECTED') waitingOverlay.classList.add('hidden');
+        if (code === 'DISCONNECTED') waitingOverlay.classList.remove('hidden');
+    }
+
+    function makeManager() {
+        if (manager) manager.close();
+        manager = new WebRTCManager({
+            role: 'peer',
+            roomId: room,
+            onStream: (stream) => {
+                remoteVideo.srcObject = stream;
+                remoteVideo.muted = true;
+                remoteVideo.play().catch(()=>{});
+                waitingOverlay.classList.add('hidden');
+                setStatus('CONNECTED', 'ĐANG NHẬN MÀN HÌNH');
+                if (stream.getVideoTracks().length) {
+                    renderer.setSharpening(true, 0.4);
+                    renderer.startLoop();
+                }
+            },
+            onStatusChange: (code, label) => setStatus(code, label),
+            onMetrics: (m) => {
+                const parts = [];
+                if (m.fps) parts.push(`${m.fps} FPS`);
+                if (m.ping) parts.push(`${m.ping} ms RTT`);
+                if (m.pipelineMs) parts.push(`${m.pipelineMs} ms pipeline`);
+                if (parts.length) statusText.textContent = `P2P • ${parts.join(' • ')}`;
+            }
+        });
+        manager.connectSignaling();
+        return manager;
+    }
+
+    function joinRoom() {
+        room = (roomInput.value || '').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40);
+        if (!room) return;
+        roomInput.value = room;
+        history.replaceState({}, '', `${location.pathname}?room=${encodeURIComponent(room)}`);
+        makeManager();
+    }
+
+    joinBtn.addEventListener('click', joinRoom);
+    roomInput.addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom(); });
+
+    shareBtn.addEventListener('click', async () => {
+        if (!manager) joinRoom();
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:60,max:60}, cursor:'always' },
+                audio: false
+            });
+            await manager.startScreenCapture(stream);
+            shareBtn.style.display = 'none';
+            stopBtn.style.display = 'inline-block';
+            setStatus('CONNECTED', 'ĐANG PHÁT MÀN HÌNH');
+            const track = stream.getVideoTracks()[0];
+            if (track) track.addEventListener('ended', () => stopBtn.click(), { once:true });
+        } catch (err) {
+            console.error('[Cast Screen] getDisplayMedia:', err);
+            if (err.name !== 'NotAllowedError') setStatus('FAILED', 'Không thể chia sẻ màn hình');
+        }
+    });
+
+    stopBtn.addEventListener('click', () => {
+        if (manager) manager.stopScreenCapture();
+        stopBtn.style.display = 'none';
+        shareBtn.style.display = 'inline-block';
+        setStatus(manager && manager.remotePeerId ? 'CONNECTED' : 'SIGNALING_READY', manager && manager.remotePeerId ? 'Đã kết nối máy thứ hai' : 'Đang chờ máy thứ hai...');
+    });
+
+    makeManager();
+});
+</script>
+</body>
+</html>
