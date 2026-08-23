@@ -33,21 +33,14 @@
         <!-- Left: Video Viewport Stage -->
         <section class="viewport-card">
             <div class="video-stage-container" id="videoStage">
-                <!-- Video Element: muted initially for mobile autoplay policy, unmuted on user interaction -->
                 <video id="remoteVideo" autoplay playsinline webkit-playsinline muted></video>
-                <!-- WebGL Sharpening Canvas (GPU) -->
                 <canvas id="glCanvas"></canvas>
-
-
-                <!-- Floating Exit Fullscreen Button (visible when fullscreen is active) -->
                 <button id="btnExitFullscreenFloating" class="btn-exit-fullscreen-floating" title="Thu nhỏ">
                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+                        <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2 2h3M3 16h3a2 2 0 0 1 2 2v3"/>
                     </svg>
                     <span>Thu Nhỏ</span>
                 </button>
-
-                <!-- Floating Unmute Audio Pill -->
                 <button id="btnUnmuteAudio" class="btn-unmute-floating">
                     <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -55,8 +48,6 @@
                     </svg>
                     BẬT ÂM THANH
                 </button>
-
-                <!-- Waiting Overlay with QR Code -->
                 <div class="waiting-overlay" id="waitingOverlay">
                     <div class="waiting-icon">
                         <svg class="waiting-phone-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -66,10 +57,7 @@
                         </svg>
                     </div>
                     <h2 class="waiting-title">Sẵn Sàng Nhận Chiếu Màn Hình</h2>
-                    <p class="waiting-subtitle">
-                        Quét mã QR hoặc truy cập đường link để chia sẻ màn hình điện thoại / máy tính của bạn.
-                    </p>
-
+                    <p class="waiting-subtitle">Quét mã QR hoặc truy cập đường link để chia sẻ màn hình điện thoại / máy tính của bạn.</p>
                     <div class="connect-box">
                         <div class="qr-code-wrapper" id="qrCodeContainer"></div>
                         <div class="room-pin-display">
@@ -79,8 +67,6 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Toolbar Controls (Clean & Focused on Fullscreen + Audio) -->
             <div class="viewport-toolbar">
                 <div class="tool-group">
                     <button class="btn-tool" id="btnFullscreen" title="Toàn màn hình">
@@ -103,88 +89,37 @@
             </div>
         </section>
 
-        <!-- Right: Control & Telemetry Sidebar -->
         <aside class="sidebar-panel">
-            <!-- Stream Telemetry Card -->
             <div class="control-card">
                 <div class="card-header">
-                    <svg class="card-header-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M18 20V10M12 20V4M6 20v-6"/>
-                    </svg>
+                    <svg class="card-header-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
                     <h3 class="card-title">THÔNG SỐ PHẦN CỨNG & MẠNG</h3>
                 </div>
-                <div class="info-row">
-                    <span class="info-label">Thiết bị:</span>
-                    <span class="info-value highlight" id="streamDeviceName">Chưa có kết nối</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Độ phân giải:</span>
-                    <span class="info-value" id="streamResInfo">Tự động (1080p/2K)</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Giao thức:</span>
-                    <span class="info-value">WebRTC P2P (0ms Cloud)</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Giải mã phần cứng:</span>
-                    <span class="info-value highlight">VGA GPU (WebCodecs)</span>
-                </div>
+                <div class="info-row"><span class="info-label">Thiết bị:</span><span class="info-value highlight" id="streamDeviceName">Chưa có kết nối</span></div>
+                <div class="info-row"><span class="info-label">Độ phân giải:</span><span class="info-value" id="streamResInfo">Tự động (1080p/2K)</span></div>
+                <div class="info-row"><span class="info-label">Giao thức:</span><span class="info-value">WebRTC P2P 2 chiều</span></div>
+                <div class="info-row"><span class="info-label">Giải mã:</span><span class="info-value highlight">Browser GPU/WebCodecs</span></div>
             </div>
-
-            <!-- Video Enhancer & GPU Sharpening Card -->
             <div class="control-card">
                 <div class="card-header">
-                    <svg class="card-header-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="4" y="4" width="16" height="16" rx="2"/>
-                        <rect x="9" y="9" width="6" height="6"/>
-                        <line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/>
-                        <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
-                        <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
-                        <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
-                    </svg>
+                    <svg class="card-header-svg" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>
                     <h3 class="card-title">TỐI ƯU HÓA HÌNH ẢNH GPU</h3>
                 </div>
                 <div class="switch-row">
-                    <div>
-                        <div style="font-size: 13px; font-weight: 600;">Làm Nét GPU (WebGL Shaders)</div>
-                        <div style="font-size: 11px; color: var(--text-muted);">Khử mờ & Tăng độ tương phản rìa ảnh</div>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="toggleSharpen" checked>
-                        <span class="slider"></span>
-                    </label>
+                    <div><div style="font-size: 13px; font-weight: 600;">Làm Nét GPU (WebGL Shaders)</div><div style="font-size: 11px; color: var(--text-muted);">Khử mờ & Tăng độ tương phản rìa ảnh</div></div>
+                    <label class="switch"><input type="checkbox" id="toggleSharpen" checked><span class="slider"></span></label>
                 </div>
-
-                <div class="setting-item" style="margin-top: 10px;">
-                    <label class="setting-label">Mức độ làm nét:</label>
-                    <select class="select-box" id="sharpenStrength">
-                        <option value="0.35">Nhẹ (35%) — Mịn màng</option>
-                        <option value="0.60" selected>Tiêu chuẩn (60%) — Rất sắc nét</option>
-                        <option value="0.90">Cực đại (90%) — Sắc lẹm</option>
-                    </select>
-                </div>
-
-                <div class="switch-row" style="margin-top: 10px;">
-                    <div>
-                        <div style="font-size: 13px; font-weight: 600;">In-Game OSD HUD</div>
-                        <div style="font-size: 11px; color: var(--text-muted);">Hiện FPS & Ping kiểu Esports</div>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="toggleHud" checked>
-                        <span class="slider"></span>
-                    </label>
-                </div>
+                <div class="setting-item" style="margin-top: 10px;"><label class="setting-label">Mức độ làm nét:</label><select class="select-box" id="sharpenStrength"><option value="0.35">Nhẹ (35%) — Mịn màng</option><option value="0.60" selected>Tiêu chuẩn (60%) — Rất sắc nét</option><option value="0.90">Cực đại (90%) — Sắc lẹm</option></select></div>
+                <div class="switch-row" style="margin-top: 10px;"><div><div style="font-size: 13px; font-weight: 600;">In-Game OSD HUD</div><div style="font-size: 11px; color: var(--text-muted);">Hiện FPS & Ping kiểu Esports</div></div><label class="switch"><input type="checkbox" id="toggleHud" checked><span class="slider"></span></label></div>
             </div>
         </aside>
     </main>
 
-    <!-- Scripts with Cache Busting -->
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="js/qrcode.min.js?v=3.5"></script>
     <script src="js/hud_overlay.js?v=3.5"></script>
     <script src="js/video_renderer.js?v=3.5"></script>
-    <script src="js/webrtc_manager.js?v=3.5"></script>
+    <script src="js/webrtc_manager.js?v=3.6"></script>
     <script src="js/app.js?v=3.5"></script>
 </body>
 </html>
-
