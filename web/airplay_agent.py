@@ -2,7 +2,6 @@ import json
 import os
 import secrets
 import sys
-import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -17,6 +16,9 @@ HOST = "127.0.0.1"
 PORT = int(os.environ.get("CASTSCREEN_AIRPLAY_PORT", "8765"))
 DENY_COOLDOWN_SECONDS = 12
 
+state_lock = threading.Lock() if False else None
+# initialized below to keep source simple for PyInstaller
+import threading
 state_lock = threading.Lock()
 state = {
     "running": False,
@@ -48,11 +50,10 @@ def _on_connected(device):
         denied_until = float(state.get("denied_until", 0))
     if approved:
         _set_event(name, connected=True, pending=False)
-        return
-    if now < denied_until:
+    elif now < denied_until:
         _set_event(name, connected=True, pending=False)
-        return
-    _set_event(name, connected=True, pending=True)
+    else:
+        _set_event(name, connected=True, pending=True)
 
 
 def _on_disconnected():
@@ -94,6 +95,7 @@ def stop_airplay():
             state["airplay_connected"] = False
             state["pending_approval"] = False
             state["device"] = None
+            state["last_event"] = time.time()
 
 
 def authorize(allow: bool):
@@ -104,7 +106,6 @@ def authorize(allow: bool):
         state["pending_approval"] = False
         if not allow:
             state["denied_until"] = time.time() + DENY_COOLDOWN_SECONDS
-
     if not allow and connected:
         stop_airplay()
         start_airplay()
@@ -114,7 +115,7 @@ def authorize(allow: bool):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CastScreenAirPlayAgent/1.1"
+    server_version = "CastScreenAirPlayAgent/1.2"
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -152,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, payload)
             return
         if parsed.path == "/health":
-            self._json(200, {"ok": True, "service": "airplay-agent"})
+            self._json(200, {"ok": True, "service": "airplay-agent", "version": "1.2"})
             return
         self._json(404, {"ok": False, "error": "not-found"})
 
@@ -180,18 +181,18 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"ok": False, "error": "not-found"})
 
     def log_message(self, fmt, *args):
-        print("[AirPlayAgent] " + fmt % args)
+        print("[CastScreen AirPlay Agent] " + fmt % args)
 
 
 def main():
-    if not start_airplay():
-        raise SystemExit(1)
+    # The packaged agent stays idle after Windows starts. The web Host room
+    # explicitly starts/stops the AirPlay receiver for the active room.
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print("=" * 64)
     print("CAST SCREEN PRO — LOCAL AIRPLAY AGENT")
     print(f"Control API: http://{HOST}:{PORT}")
-    print(f"Agent token: {agent_token}")
-    print("AirPlay receiver: CastScreen-PC")
+    print("AirPlay receiver: starts only while a Cast Screen Host room is active")
+    print("This packaged application does not require Python on the user's PC.")
     print("=" * 64)
     try:
         server.serve_forever()
