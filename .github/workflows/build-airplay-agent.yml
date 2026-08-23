@@ -7,6 +7,7 @@ on:
       - 'web/airplay_agent.py'
       - 'web/AIRPLAY_AGENT_GUIDE.md'
       - 'web/AIRPLAY_AGENT_PRIVACY.md'
+      - 'web/DOWNLOAD_AIRPLAY_AGENT.md'
       - 'engine/**'
       - 'packaging/**'
       - 'requirements.txt'
@@ -41,17 +42,21 @@ jobs:
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\CastScreenAirPlayAgent.iss
 
-      - name: Verify outputs
+      - name: Verify and checksum
         shell: pwsh
         run: |
-          if (!(Test-Path "dist\installer\CastScreenAirPlayAgentSetup.exe")) { throw 'Installer not created' }
-          Get-Item "dist\installer\CastScreenAirPlayAgentSetup.exe" | Format-List FullName,Length
+          $installer = "dist\installer\CastScreenAirPlayAgentSetup.exe"
+          if (!(Test-Path $installer)) { throw 'Installer not created' }
+          Get-FileHash $installer -Algorithm SHA256 | Format-List
+          Get-FileHash $installer -Algorithm SHA256 | Out-File "dist\installer\SHA256SUMS.txt" -Encoding utf8
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: CastScreen-AirPlay-Agent-Windows
-          path: dist/installer/CastScreenAirPlayAgentSetup.exe
+          path: |
+            dist/installer/CastScreenAirPlayAgentSetup.exe
+            dist/installer/SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Upload portable agent artifact
