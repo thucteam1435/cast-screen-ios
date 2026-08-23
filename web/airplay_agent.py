@@ -183,14 +183,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    # The packaged agent stays idle after Windows starts. The web Host room
-    # explicitly starts/stops the AirPlay receiver for the active room.
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print("=" * 64)
     print("CAST SCREEN PRO — LOCAL AIRPLAY AGENT")
     print(f"Control API: http://{HOST}:{PORT}")
     print("AirPlay receiver: starts only while a Cast Screen Host room is active")
-    print("This packaged application does not require Python on the user's PC.")
+    print("Packaged mode: no Python is required on the user's PC.")
     print("=" * 64)
     try:
         server.serve_forever()
